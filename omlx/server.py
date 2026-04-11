@@ -284,7 +284,8 @@ async def verify_api_key(
         else []
     )
     if not verify_any_api_key(api_key_value, _server_state.api_key, sub_keys):
-        logger.warning("Rejected API key: %r", api_key_value)
+        _redacted = api_key_value[:3] + "***" if len(api_key_value) > 3 else "***"
+        logger.warning("Rejected API key: %r", _redacted)
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     return True
@@ -380,8 +381,9 @@ app = FastAPI(
 )
 
 # Include MCP routes
-from .api.mcp_routes import router as mcp_router, set_mcp_manager_getter
+from .api.mcp_routes import router as mcp_router, set_mcp_manager_getter, set_api_key_dependency
 set_mcp_manager_getter(get_mcp_manager)
+set_api_key_dependency(verify_api_key)
 app.include_router(mcp_router)
 
 # Include audio routes only when mlx-audio is installed.
@@ -516,10 +518,42 @@ class DebugRequestLoggingMiddleware:
     Uses raw ASGI protocol instead of BaseHTTPMiddleware to avoid
     wrapping StreamingResponse in an intermediate pipe layer, which
     causes connection corruption on HTTP keep-alive connections.
+
+    Sensitive JSON fields (api_key, secret_key, hf_token, password,
+    authorization) are redacted before logging.
     """
+
+    _SENSITIVE_KEYS = frozenset({
+        "api_key", "secret_key", "hf_token", "password",
+        "authorization", "token", "access_token",
+    })
 
     def __init__(self, app):
         self.app = app
+
+    @classmethod
+    def _redact_body(cls, raw: str) -> str:
+        """Best-effort redaction of sensitive values in a JSON body."""
+        import json as _json
+        try:
+            data = _json.loads(raw)
+        except (ValueError, TypeError):
+            return raw
+        if isinstance(data, dict):
+            data = cls._redact_dict(data)
+        return _json.dumps(data)
+
+    @classmethod
+    def _redact_dict(cls, d: dict) -> dict:
+        out = {}
+        for k, v in d.items():
+            if k.lower() in cls._SENSITIVE_KEYS and isinstance(v, str) and v:
+                out[k] = v[:3] + "***" if len(v) > 3 else "***"
+            elif isinstance(v, dict):
+                out[k] = cls._redact_dict(v)
+            else:
+                out[k] = v
+        return out
 
     async def __call__(self, scope, receive, send):
         if (
@@ -539,12 +573,13 @@ class DebugRequestLoggingMiddleware:
                 break
 
         body = b"".join(part.get("body", b"") for part in body_parts)
+        safe_body = self._redact_body(body.decode("utf-8", errors="replace"))
         logger.log(
             5,
             "Incoming %s %s — body: %s",
             scope["method"],
             scope["path"],
-            body.decode("utf-8", errors="replace"),
+            safe_body,
         )
 
         # Replay cached body for inner app, then forward real receive

@@ -6,9 +6,12 @@ This module provides FastAPI routes for MCP tool management:
 - GET /v1/mcp/tools - List available MCP tools
 - GET /v1/mcp/servers - List MCP server status
 - POST /v1/mcp/execute - Execute an MCP tool
+
+All endpoints require API key authentication (consistent with other /v1/* routes).
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .openai_models import (
     MCPExecuteRequest,
@@ -21,9 +24,24 @@ from .openai_models import (
 
 router = APIRouter(prefix="/v1/mcp", tags=["mcp"])
 
+# Security bearer (mirrors server.py)
+_security = HTTPBearer(auto_error=False)
 
 # Callback function to get MCP manager (set by server.py)
 _get_mcp_manager = None
+
+# Callback for API key verification (set by server.py via set_api_key_dependency)
+_verify_api_key_fn = None
+
+
+def set_api_key_dependency(dep):
+    """Set the API key verification function.
+
+    Args:
+        dep: The verify_api_key async function from server.py.
+    """
+    global _verify_api_key_fn
+    _verify_api_key_fn = dep
 
 
 def set_mcp_manager_getter(getter):
@@ -44,8 +62,23 @@ def _get_manager():
     return _get_mcp_manager()
 
 
+async def _require_api_key(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(_security),
+) -> bool:
+    """Verify API key for MCP routes.
+
+    Delegates to the server's verify_api_key function if configured.
+    """
+    if _verify_api_key_fn is not None:
+        return await _verify_api_key_fn(request=request, credentials=credentials)
+    return True
+
+
 @router.get("/tools")
-async def list_mcp_tools() -> MCPToolsResponse:
+async def list_mcp_tools(
+    _: bool = Depends(_require_api_key),
+) -> MCPToolsResponse:
     """List all available MCP tools."""
     manager = _get_manager()
     if manager is None:
@@ -64,7 +97,9 @@ async def list_mcp_tools() -> MCPToolsResponse:
 
 
 @router.get("/servers")
-async def list_mcp_servers() -> MCPServersResponse:
+async def list_mcp_servers(
+    _: bool = Depends(_require_api_key),
+) -> MCPServersResponse:
     """Get status of all MCP servers."""
     manager = _get_manager()
     if manager is None:
@@ -84,7 +119,10 @@ async def list_mcp_servers() -> MCPServersResponse:
 
 
 @router.post("/execute")
-async def execute_mcp_tool(request: MCPExecuteRequest) -> MCPExecuteResponse:
+async def execute_mcp_tool(
+    request: MCPExecuteRequest,
+    _: bool = Depends(_require_api_key),
+) -> MCPExecuteResponse:
     """Execute an MCP tool."""
     manager = _get_manager()
     if manager is None:
