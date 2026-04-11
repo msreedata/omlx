@@ -1540,3 +1540,23 @@ class TestParseToolCallsGemma4Integration:
         assert tool_calls is not None
         assert len(tool_calls) == 1
         assert tool_calls[0].function.name == "search"
+
+    def test_syntax_error_from_tool_parser_caught_gracefully(self):
+        """SyntaxError from upstream tool_parser (e.g. ast.literal_eval on
+        non-Python-literal values like *.ps1 glob patterns) should be caught
+        and fall through to fallback parsing instead of crashing."""
+        tok = MagicMock(spec=[])
+        tok.has_tool_calling = True
+        tok.tool_call_start = "<tool_call>"
+        tok.tool_call_end = "</tool_call>"
+        tok.tool_parser = MagicMock(
+            side_effect=SyntaxError("invalid syntax")
+        )
+        text = '<tool_call>{"name": "run_cmd", "arguments": {"pattern": "*.ps1"}}</tool_call>'
+
+        cleaned, tool_calls = parse_tool_calls(text, tok, None)
+
+        # Should be parsed by _parse_xml_tool_calls fallback (Branch 2)
+        assert tool_calls is not None
+        assert len(tool_calls) == 1
+        assert tool_calls[0].function.name == "run_cmd"
