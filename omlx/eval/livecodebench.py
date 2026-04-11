@@ -40,30 +40,34 @@ def _extract_code(response: str) -> str:
     Looks for ```python...``` blocks first, then ```...``` blocks,
     then falls back to the entire response.
     """
-    match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    try:
+        match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
+        if match:
+            return match.group(1).strip()
 
-    match = re.search(r"```\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
+        match = re.search(r"```\s*\n(.*?)```", response, re.DOTALL)
+        if match:
+            return match.group(1).strip()
 
-    lines = response.strip().split("\n")
-    code_lines = []
-    in_code = False
-    for line in lines:
-        if not in_code and (
-            line.startswith("def ")
-            or line.startswith("class ")
-            or line.startswith("import ")
-            or line.startswith("from ")
-            or line.startswith("#")
-        ):
-            in_code = True
-        if in_code:
-            code_lines.append(line)
+        lines = response.strip().split("\n")
+        code_lines = []
+        in_code = False
+        for line in lines:
+            if not in_code and (
+                line.startswith("def ")
+                or line.startswith("class ")
+                or line.startswith("import ")
+                or line.startswith("from ")
+                or line.startswith("#")
+            ):
+                in_code = True
+            if in_code:
+                code_lines.append(line)
 
-    return "\n".join(code_lines) if code_lines else response.strip()
+        return "\n".join(code_lines) if code_lines else response.strip()
+    except Exception as e:
+        logger.warning(f"LiveCodeBench: failed to extract code from response: {e}")
+        return response.strip() if response else ""
 
 
 def _set_resource_limits():
@@ -84,11 +88,16 @@ def _execute_code(code: str, stdin_input: str = "") -> tuple[str, bool, str]:
     Returns:
         (stdout, success, error_message)
     """
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", delete=False
-    ) as f:
-        f.write(code)
-        tmp_path = f.name
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False
+        ) as f:
+            f.write(code)
+            tmp_path = f.name
+    except Exception as e:
+        logger.warning(f"LiveCodeBench: failed to create temp file for code execution: {e}")
+        return "", False, f"Failed to create temp file: {e}"
 
     try:
         result = subprocess.run(
@@ -113,10 +122,11 @@ def _execute_code(code: str, stdin_input: str = "") -> tuple[str, bool, str]:
     except Exception as e:
         return "", False, str(e)[:500]
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 class LiveCodeBenchBenchmark(BaseBenchmark):
@@ -127,37 +137,45 @@ class LiveCodeBenchBenchmark(BaseBenchmark):
 
     async def load_dataset(self, sample_size: int = 0) -> list[dict]:
         """Load LiveCodeBench from bundled data."""
-        items = load_jsonl(DATA_DIR / "livecodebench.jsonl")
+        try:
+            items = load_jsonl(DATA_DIR / "livecodebench.jsonl")
+        except Exception as e:
+            logger.error(f"LiveCodeBench: failed to load dataset: {e}")
+            return []
 
         normalized = []
         for i, item in enumerate(items):
-            test_cases_str = item.get("public_test_cases", "[]")
-            if isinstance(test_cases_str, str):
-                try:
-                    test_cases = json.loads(test_cases_str)
-                except (json.JSONDecodeError, TypeError):
-                    test_cases = []
-            else:
-                test_cases = test_cases_str
+            try:
+                test_cases_str = item.get("public_test_cases", "[]")
+                if isinstance(test_cases_str, str):
+                    try:
+                        test_cases = json.loads(test_cases_str)
+                    except (json.JSONDecodeError, TypeError):
+                        test_cases = []
+                else:
+                    test_cases = test_cases_str
 
-            if not isinstance(test_cases, list) or not test_cases:
+                if not isinstance(test_cases, list) or not test_cases:
+                    continue
+
+                inputs = [tc.get("input", "") for tc in test_cases]
+                outputs = [tc.get("output", "") for tc in test_cases]
+
+                if not inputs or not outputs:
+                    continue
+
+                normalized.append({
+                    "id": item.get("question_id", str(i)),
+                    "title": item.get("question_title", f"Problem {i}"),
+                    "description": item.get("question_content", ""),
+                    "inputs": inputs,
+                    "outputs": outputs,
+                    "difficulty": item.get("difficulty", ""),
+                    "starter_code": item.get("starter_code", ""),
+                })
+            except Exception as e:
+                logger.warning(f"LiveCodeBench: skipping malformed item {i}: {e}")
                 continue
-
-            inputs = [tc.get("input", "") for tc in test_cases]
-            outputs = [tc.get("output", "") for tc in test_cases]
-
-            if not inputs or not outputs:
-                continue
-
-            normalized.append({
-                "id": item.get("question_id", str(i)),
-                "title": item.get("question_title", f"Problem {i}"),
-                "description": item.get("question_content", ""),
-                "inputs": inputs,
-                "outputs": outputs,
-                "difficulty": item.get("difficulty", ""),
-                "starter_code": item.get("starter_code", ""),
-            })
 
         logger.info(f"LiveCodeBench: loaded {len(normalized)} problems")
 
@@ -183,32 +201,41 @@ class LiveCodeBenchBenchmark(BaseBenchmark):
 
     def extract_answer(self, response: str, item: dict) -> str:
         """Extract code from the response (last code block to skip drafts)."""
-        return self._extract_last_code_block(response)
+        try:
+            return self._extract_last_code_block(response)
+        except Exception as e:
+            logger.warning(f"LiveCodeBench: failed to extract answer for {item.get('id', '?')}: {e}")
+            return ""
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         """Execute code and check against test cases.
 
         Runs the first 3 test cases to keep execution time reasonable.
         """
-        if not predicted.strip():
+        try:
+            if not predicted.strip():
+                return False
+
+            inputs = item["inputs"][:3]
+            outputs = item["outputs"][:3]
+
+            for inp, expected_out in zip(inputs, outputs):
+                stdin_input = inp if isinstance(inp, str) else str(inp)
+                expected = expected_out.strip() if isinstance(expected_out, str) else str(expected_out).strip()
+
+                stdout, success, error = _execute_code(predicted, stdin_input)
+                if not success:
+                    logger.debug(f"LiveCodeBench {item.get('id', '?')}: {error}")
+                    return False
+
+                actual = stdout.strip()
+                if actual != expected:
+                    return False
+
+            return True
+        except Exception as e:
+            logger.warning(f"LiveCodeBench: check_answer failed for {item.get('id', '?')}: {e}")
             return False
-
-        inputs = item["inputs"][:3]
-        outputs = item["outputs"][:3]
-
-        for inp, expected_out in zip(inputs, outputs):
-            stdin_input = inp if isinstance(inp, str) else str(inp)
-            expected = expected_out.strip() if isinstance(expected_out, str) else str(expected_out).strip()
-
-            stdout, success, error = _execute_code(predicted, stdin_input)
-            if not success:
-                return False
-
-            actual = stdout.strip()
-            if actual != expected:
-                return False
-
-        return True
 
     async def run(
         self,
@@ -230,37 +257,59 @@ class LiveCodeBenchBenchmark(BaseBenchmark):
             batch = items[batch_start:batch_end]
             batch_time = time.time()
 
-            # Batch the generation phase
-            gen_tasks = [
-                self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
-                for j, item in enumerate(batch)
-            ]
-            gen_results = await asyncio.gather(*gen_tasks)
+            try:
+                # Batch the generation phase
+                gen_tasks = [
+                    self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
+                    for j, item in enumerate(batch)
+                ]
+                gen_results = await asyncio.gather(*gen_tasks, return_exceptions=True)
+            except Exception as e:
+                logger.error(f"LiveCodeBench: batch generation failed at batch {batch_start}: {e}")
+                completed += len(batch)
+                continue
+
             gen_elapsed = time.time() - batch_time
 
             # Code execution is sequential (subprocess safety)
-            for idx, item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
-                code = self.extract_answer(response_text, item)
-                is_correct = self.check_answer(code, item)
+            for result_item in sorted(
+                (r for r in gen_results if not isinstance(r, BaseException)),
+                key=lambda x: x[0],
+            ):
+                try:
+                    idx, item, response_text, prompt_text, _raw = result_item
+                    code = self.extract_answer(response_text, item)
+                    is_correct = self.check_answer(code, item)
 
-                if is_correct:
-                    correct += 1
+                    if is_correct:
+                        correct += 1
 
-                results.append(
-                    QuestionResult(
-                        question_id=str(item.get("id", idx)),
-                        correct=is_correct,
-                        expected="(test cases)",
-                        predicted=code[:200] + "..." if len(code) > 200 else code,
-                        time_seconds=gen_elapsed / len(batch),
-                        question_text=prompt_text,
-                        raw_response=response_text,
+                    results.append(
+                        QuestionResult(
+                            question_id=str(item.get("id", idx)),
+                            correct=is_correct,
+                            expected="(test cases)",
+                            predicted=code[:200] + "..." if len(code) > 200 else code,
+                            time_seconds=gen_elapsed / len(batch),
+                            question_text=prompt_text,
+                            raw_response=response_text,
+                        )
                     )
-                )
+                except Exception as e:
+                    logger.warning(f"LiveCodeBench: failed to process result: {e}")
+                    continue
+
+            # Log any exceptions from gather
+            for r in gen_results:
+                if isinstance(r, BaseException):
+                    logger.warning(f"LiveCodeBench: individual generation failed: {r}")
 
             completed += len(batch)
             if on_progress:
-                await on_progress(completed, len(items))
+                try:
+                    await on_progress(completed, len(items))
+                except Exception as e:
+                    logger.warning(f"LiveCodeBench: progress callback failed: {e}")
 
         total_time = time.time() - start_time
         total = len(items)

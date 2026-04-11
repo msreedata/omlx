@@ -50,40 +50,44 @@ def _extract_code(response: str, prompt: str) -> str:
     We need to combine it with the original prompt to form a complete function.
     Always prepends imports from the prompt to avoid NameError.
     """
-    response = response.strip()
-    imports = _get_imports(prompt)
+    try:
+        response = response.strip()
+        imports = _get_imports(prompt)
 
-    # If response contains a code block, extract it
-    match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        code = match.group(1).strip()
-        if "def " in code:
-            # Model included full function — prepend imports if missing
-            if imports and not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
-                return imports + "\n\n" + code
-            return code
-        return prompt + code
+        # If response contains a code block, extract it
+        match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
+        if match:
+            code = match.group(1).strip()
+            if "def " in code:
+                # Model included full function — prepend imports if missing
+                if imports and not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
+                    return imports + "\n\n" + code
+                return code
+            return prompt + code
 
-    match = re.search(r"```\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        code = match.group(1).strip()
-        if "def " in code:
-            if imports and not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
-                return imports + "\n\n" + code
-            return code
-        return prompt + code
+        match = re.search(r"```\s*\n(.*?)```", response, re.DOTALL)
+        if match:
+            code = match.group(1).strip()
+            if "def " in code:
+                if imports and not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
+                    return imports + "\n\n" + code
+                return code
+            return prompt + code
 
-    # No code block — response is the continuation of the prompt
-    if response.startswith("def "):
-        # Model repeated the function def — prepend imports
-        if imports:
-            return imports + "\n\n" + response
-        return response
-    if response.startswith("from ") or response.startswith("import "):
-        return response
+        # No code block — response is the continuation of the prompt
+        if response.startswith("def "):
+            # Model repeated the function def — prepend imports
+            if imports:
+                return imports + "\n\n" + response
+            return response
+        if response.startswith("from ") or response.startswith("import "):
+            return response
 
-    # Response is just the function body — combine with prompt
-    return prompt + response
+        # Response is just the function body — combine with prompt
+        return prompt + response
+    except Exception as e:
+        logger.warning(f"Failed to extract code from response: {e}")
+        return prompt + response.strip() if response else prompt
 
 
 def _set_resource_limits():
@@ -106,16 +110,21 @@ def _execute_with_tests(code: str, test_code: str, entry_point: str) -> tuple[bo
     Returns:
         (passed, error_message)
     """
-    # Build the complete test script
-    script = f"""{code}
+    tmp_path = None
+    try:
+        # Build the complete test script
+        script = f"""{code}
 
 {test_code}
 
 check({entry_point})
 """
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(script)
-        tmp_path = f.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(script)
+            tmp_path = f.name
+    except Exception as e:
+        logger.warning(f"Failed to create temp file for code execution: {e}")
+        return False, f"Failed to create temp file: {e}"
 
     try:
         result = subprocess.run(
@@ -139,10 +148,11 @@ check({entry_point})
     except Exception as e:
         return False, str(e)[:500]
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 class HumanEvalBenchmark(BaseBenchmark):
@@ -153,17 +163,25 @@ class HumanEvalBenchmark(BaseBenchmark):
 
     async def load_dataset(self, sample_size: int = 0) -> list[dict]:
         """Load HumanEval from bundled data."""
-        items = load_jsonl(DATA_DIR / "humaneval.jsonl")
+        try:
+            items = load_jsonl(DATA_DIR / "humaneval.jsonl")
+        except Exception as e:
+            logger.error(f"HumanEval: failed to load dataset: {e}")
+            return []
 
         normalized = []
         for item in items:
-            normalized.append({
-                "id": item["task_id"],
-                "prompt": item["prompt"],
-                "test": item["test"],
-                "entry_point": item["entry_point"],
-                "question": item["prompt"],  # for get_question_text
-            })
+            try:
+                normalized.append({
+                    "id": item["task_id"],
+                    "prompt": item["prompt"],
+                    "test": item["test"],
+                    "entry_point": item["entry_point"],
+                    "question": item["prompt"],  # for get_question_text
+                })
+            except (KeyError, TypeError) as e:
+                logger.warning(f"HumanEval: skipping malformed item: {e}")
+                continue
 
         logger.info(f"HumanEval: loaded {len(normalized)} problems")
 
@@ -187,30 +205,40 @@ class HumanEvalBenchmark(BaseBenchmark):
 
     def extract_answer(self, response: str, item: dict) -> str:
         """Extract the complete function from model response."""
-        # Use last code block to avoid picking drafts/examples
-        code = self._extract_last_code_block(response)
-        imports = _get_imports(item["prompt"])
+        try:
+            # Use last code block to avoid picking drafts/examples
+            code = self._extract_last_code_block(response)
+            imports = _get_imports(item["prompt"])
 
-        # If extracted code has function def but no imports, prepend from prompt
-        if "def " in code and imports:
-            if not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
-                return imports + "\n\n" + code
+            # If extracted code has function def but no imports, prepend from prompt
+            if "def " in code and imports:
+                if not any(line.strip().startswith(("import ", "from ")) for line in code.split("\n")):
+                    return imports + "\n\n" + code
 
-        # If no function def found, combine prompt + response body
-        if "def " not in code:
-            return item["prompt"] + code
+            # If no function def found, combine prompt + response body
+            if "def " not in code:
+                return item["prompt"] + code
 
-        return code
+            return code
+        except Exception as e:
+            logger.warning(f"HumanEval: failed to extract answer for {item.get('id', '?')}: {e}")
+            return ""
 
     def check_answer(self, predicted: str, item: dict) -> bool:
         """Execute the generated code with test cases."""
-        if not predicted.strip():
-            return False
+        try:
+            if not predicted.strip():
+                return False
 
-        passed, error = _execute_with_tests(
-            predicted, item["test"], item["entry_point"]
-        )
-        return passed
+            passed, error = _execute_with_tests(
+                predicted, item["test"], item["entry_point"]
+            )
+            if error:
+                logger.debug(f"HumanEval {item.get('id', '?')}: {error}")
+            return passed
+        except Exception as e:
+            logger.warning(f"HumanEval: check_answer failed for {item.get('id', '?')}: {e}")
+            return False
 
     async def run(
         self,
@@ -232,35 +260,57 @@ class HumanEvalBenchmark(BaseBenchmark):
             batch = items[batch_start:batch_end]
             batch_time = time.time()
 
-            gen_tasks = [
-                self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
-                for j, item in enumerate(batch)
-            ]
-            gen_results = await asyncio.gather(*gen_tasks)
+            try:
+                gen_tasks = [
+                    self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
+                    for j, item in enumerate(batch)
+                ]
+                gen_results = await asyncio.gather(*gen_tasks, return_exceptions=True)
+            except Exception as e:
+                logger.error(f"HumanEval: batch generation failed at batch {batch_start}: {e}")
+                completed += len(batch)
+                continue
+
             gen_elapsed = time.time() - batch_time
 
-            for idx, item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
-                code = self.extract_answer(response_text, item)
-                is_correct = self.check_answer(code, item)
+            for result_item in sorted(
+                (r for r in gen_results if not isinstance(r, BaseException)),
+                key=lambda x: x[0],
+            ):
+                try:
+                    idx, item, response_text, prompt_text, _raw = result_item
+                    code = self.extract_answer(response_text, item)
+                    is_correct = self.check_answer(code, item)
 
-                if is_correct:
-                    correct += 1
+                    if is_correct:
+                        correct += 1
 
-                results.append(
-                    QuestionResult(
-                        question_id=str(item.get("id", idx)),
-                        correct=is_correct,
-                        expected="(unit tests)",
-                        predicted=code[:200] + "..." if len(code) > 200 else code,
-                        time_seconds=gen_elapsed / len(batch),
-                        question_text=prompt_text,
-                        raw_response=response_text,
+                    results.append(
+                        QuestionResult(
+                            question_id=str(item.get("id", idx)),
+                            correct=is_correct,
+                            expected="(unit tests)",
+                            predicted=code[:200] + "..." if len(code) > 200 else code,
+                            time_seconds=gen_elapsed / len(batch),
+                            question_text=prompt_text,
+                            raw_response=response_text,
+                        )
                     )
-                )
+                except Exception as e:
+                    logger.warning(f"HumanEval: failed to process result: {e}")
+                    continue
+
+            # Log any exceptions from gather
+            for r in gen_results:
+                if isinstance(r, BaseException):
+                    logger.warning(f"HumanEval: individual generation failed: {r}")
 
             completed += len(batch)
             if on_progress:
-                await on_progress(completed, len(items))
+                try:
+                    await on_progress(completed, len(items))
+                except Exception as e:
+                    logger.warning(f"HumanEval: progress callback failed: {e}")
 
         total_time = time.time() - start_time
         total = len(items)
