@@ -416,7 +416,7 @@ def parse_tool_calls(
                             ),
                         )
                     )
-                except (ValueError, json.JSONDecodeError, AttributeError, KeyError):
+                except (ValueError, json.JSONDecodeError, AttributeError, KeyError, SyntaxError, TypeError):
                     # Gemma 4 only: try robust fallback that handles bare
                     # string values and colons in function names.
                     if tool_call_start == "<|tool_call>":
