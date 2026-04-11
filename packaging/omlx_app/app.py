@@ -1111,7 +1111,7 @@ class OMLXAppDelegate(NSObject):
         alert.addButtonWithTitle_("GitHub")
 
         if alert.runModal() != NSAlertFirstButtonReturn:
-            webbrowser.open("https://github.com/jundot")
+            webbrowser.open("https://github.com/msreedata/omlx")
 
     @objc.IBAction
     def quitApp_(self, sender):
