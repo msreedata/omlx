@@ -791,6 +791,19 @@ def set_hf_uploader(uploader):
 # =============================================================================
 
 
+def _is_secure_cookie() -> bool:
+    """Determine if session cookies should use the secure flag.
+
+    Returns True when the server is NOT listening on localhost,
+    meaning traffic likely goes over a network and should use HTTPS.
+    """
+    gs = _get_global_settings() if _get_global_settings else None
+    if gs is None:
+        return False
+    host = gs.server.host
+    return host not in ("127.0.0.1", "localhost", "::1")
+
+
 def format_size(size_bytes: int) -> str:
     """
     Format a byte size as a human-readable string.
@@ -1016,6 +1029,7 @@ async def login(request: LoginRequest, response: Response):
         key="omlx_admin_session",
         value=token,
         httponly=True,
+        secure=_is_secure_cookie(),
         samesite="lax",
         max_age=cookie_max_age,
     )
@@ -1083,6 +1097,7 @@ async def setup_api_key(request: SetupApiKeyRequest, response: Response):
         key="omlx_admin_session",
         value=token,
         httponly=True,
+        secure=_is_secure_cookie(),
         samesite="lax",
         max_age=86400,  # 24 hours
     )
@@ -1136,6 +1151,7 @@ async def auto_login(key: str = "", redirect: str = "/admin/dashboard"):
         key="omlx_admin_session",
         value=token,
         httponly=True,
+        secure=_is_secure_cookie(),
         samesite="lax",
         max_age=86400,
     )
@@ -1763,7 +1779,11 @@ async def get_global_settings(is_admin: bool = Depends(require_admin)):
         },
         "auth": {
             "api_key_set": bool(global_settings.auth.api_key),
-            "api_key": global_settings.auth.api_key or "",
+            "api_key": (
+                global_settings.auth.api_key[:3] + "***" + global_settings.auth.api_key[-4:]
+                if global_settings.auth.api_key and len(global_settings.auth.api_key) > 8
+                else "***" if global_settings.auth.api_key else ""
+            ),
             "skip_api_key_verification": global_settings.auth.skip_api_key_verification,
             "sub_keys": [sk.to_dict() for sk in global_settings.auth.sub_keys],
         },

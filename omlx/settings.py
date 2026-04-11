@@ -113,7 +113,9 @@ class ServerSettings:
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: str = "info"
-    cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    cors_origins: list[str] = field(
+        default_factory=lambda: ["http://localhost", "http://localhost:*", "http://127.0.0.1", "http://127.0.0.1:*"]
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -126,7 +128,7 @@ class ServerSettings:
             host=data.get("host", "127.0.0.1"),
             port=data.get("port", 8000),
             log_level=data.get("log_level", "info"),
-            cors_origins=data.get("cors_origins", ["*"]),
+            cors_origins=data.get("cors_origins", ["http://localhost", "http://localhost:*", "http://127.0.0.1", "http://127.0.0.1:*"]),
         )
 
 
