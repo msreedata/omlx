@@ -1480,36 +1480,8 @@ class OMLXAppDelegate(NSObject):
         )
         credits = NSMutableAttributedString.alloc().initWithString_(credits_text)
 
-        # Center the whole credits block to match the panel's header alignment.
-        paragraph = NSMutableParagraphStyle.alloc().init()
-        paragraph.setAlignment_(NSTextAlignmentCenter)
-        credits.addAttribute_value_range_(
-            NSParagraphStyleAttributeName,
-            paragraph,
-            (0, credits.length()),
-        )
-
-        # Embed the URL as a link attribute so clicking opens the browser.
-        loc = credits_text.find(github_url)
-        if loc >= 0:
-            credits.addAttribute_value_range_(
-                NSLinkAttributeName,
-                NSURL.URLWithString_(github_url),
-                (loc, len(github_url)),
-            )
-
-        options = {
-            "ApplicationName": "oMLX",
-            "ApplicationVersion": __version__,
-            "Credits": credits,
-        }
-        if build_number:
-            options["Version"] = str(build_number)
-
-        NSApp.activateIgnoringOtherApps_(True)
-        NSApplication.sharedApplication().orderFrontStandardAboutPanelWithOptions_(
-            options
-        )
+        if alert.runModal() != NSAlertFirstButtonReturn:
+            webbrowser.open("https://github.com/msreedata/omlx")
 
     @objc.IBAction
     def quitApp_(self, sender):
