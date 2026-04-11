@@ -98,7 +98,7 @@ tags:
 
 {notice}# {model_name}
 
-This model was quantized using [oQ](https://github.com/jundot/omlx) (oMLX v{__version__}) mixed-precision quantization.
+This model was quantized using [oQ](https://github.com/msreedata/omlx) (oMLX v{__version__}) mixed-precision quantization.
 
 ## Quantization details
 
