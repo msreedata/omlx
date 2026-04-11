@@ -1597,7 +1597,7 @@
                 let lines = [];
 
                 lines.push('oMLX - LLM inference, optimized for your Mac');
-                lines.push('https://github.com/jundot/omlx');
+                lines.push('https://github.com/msreedata/omlx');
                 lines.push(`Benchmark Model: ${this.benchModelId}`);
                 lines.push('='.repeat(80));
 
