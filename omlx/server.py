@@ -284,7 +284,7 @@ async def verify_api_key(
         else []
     )
     if not verify_any_api_key(api_key_value, _server_state.api_key, sub_keys):
-        _redacted = api_key_value[:3] + "***" if len(api_key_value) > 3 else "***"
+        _redacted = (api_key_value[:3] + "***") if len(api_key_value) > 3 else "***"
         logger.warning("Rejected API key: %r", _redacted)
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -548,7 +548,7 @@ class DebugRequestLoggingMiddleware:
         out = {}
         for k, v in d.items():
             if k.lower() in cls._SENSITIVE_KEYS and isinstance(v, str) and v:
-                out[k] = v[:3] + "***" if len(v) > 3 else "***"
+                out[k] = (v[:3] + "***") if len(v) > 3 else "***"
             elif isinstance(v, dict):
                 out[k] = cls._redact_dict(v)
             else:
