@@ -284,7 +284,8 @@ async def verify_api_key(
         else []
     )
     if not verify_any_api_key(api_key_value, _server_state.api_key, sub_keys):
-        logger.warning("Rejected API key: %r", api_key_value)
+        masked = api_key_value[:4] + "***" if len(api_key_value) > 4 else "***"
+        logger.warning("Rejected API key: %s", masked)
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     return True
@@ -1049,7 +1050,15 @@ def init_server(
         init_auth(global_settings.auth.secret_key, lambda: _server_state.global_settings)
 
     # Configure CORS middleware from settings
-    cors_origins = global_settings.server.cors_origins if global_settings else ["*"]
+    cors_origins = global_settings.server.cors_origins if global_settings else [
+        "http://localhost:8000", "http://127.0.0.1:8000"
+    ]
+    if "*" in cors_origins:
+        logger.warning(
+            "CORS is configured to allow ALL origins ('*'). "
+            "This is insecure if the server is exposed beyond localhost. "
+            "Set 'cors_origins' in settings.json to restrict allowed origins."
+        )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
