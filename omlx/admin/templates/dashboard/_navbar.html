@@ -11,7 +11,7 @@
                     <a :href="updateAvailable && releaseUrl ? releaseUrl : 'https://github.com/msreedata/omlx'" target="_blank"
                        class="relative text-[10px] text-neutral-500 dark:text-neutral-400 leading-none hover:text-neutral-700 dark:hover:text-neutral-300"
                        @mouseenter="versionHover = true" @mouseleave="versionHover = false">
-                        v{{ version }}
+                        v{{ version }} (sm)
                         <span x-show="updateAvailable" x-cloak
                               class="inline-block w-1.5 h-1.5 bg-green-500 rounded-full ml-0.5 align-middle"></span>
                         <span x-show="versionHover" x-cloak
