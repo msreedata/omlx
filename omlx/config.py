@@ -57,7 +57,9 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
-    cors_origins: List[str] = field(default_factory=lambda: ["*"])
+    cors_origins: List[str] = field(
+        default_factory=lambda: ["http://localhost:8000", "http://127.0.0.1:8000"]
+    )
 
 
 @dataclass

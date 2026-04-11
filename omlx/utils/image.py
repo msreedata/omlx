@@ -10,12 +10,53 @@ hashes for prefix cache deduplication.
 import base64
 import hashlib
 import io
+import ipaddress
 import logging
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_image_url(url: str) -> None:
+    """Validate that an image URL is safe to fetch (SSRF protection).
+
+    Blocks requests to private/internal IP ranges, link-local addresses,
+    loopback, and file:// URIs to prevent Server-Side Request Forgery.
+
+    Args:
+        url: The URL to validate.
+
+    Raises:
+        ValueError: If the URL targets a blocked address or scheme.
+    """
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+
+    # Only allow http and https schemes
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Blocked URL scheme: {scheme}")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL has no hostname")
+
+    # Resolve hostname to check for private IPs
+    import socket
+
+    try:
+        addrinfos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise ValueError(f"Cannot resolve hostname: {hostname}") from exc
+
+    for addrinfo in addrinfos:
+        ip = ipaddress.ip_address(addrinfo[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise ValueError(
+                f"Blocked request to private/internal address: {hostname}"
+            )
 
 
 def load_image(url_or_base64: str) -> Image.Image:
@@ -47,12 +88,15 @@ def load_image(url_or_base64: str) -> Image.Image:
     elif url_or_base64.startswith(("http://", "https://")):
         import urllib.request
 
+        _validate_image_url(url_or_base64)
         with urllib.request.urlopen(url_or_base64, timeout=30) as response:
             img_bytes = response.read()
         img = Image.open(io.BytesIO(img_bytes))
     else:
-        # Try as local file path
-        img = Image.open(url_or_base64)
+        raise ValueError(
+            f"Unsupported image source: only data URIs and http(s) URLs are "
+            f"allowed (got {url_or_base64[:30]}...)"
+        )
 
     # Apply EXIF orientation (phone photos etc.) before processing.
     # Matches mlx-vlm's load_image which calls ImageOps.exif_transpose().
