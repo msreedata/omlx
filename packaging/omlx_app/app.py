@@ -1974,7 +1974,8 @@ class OMLXAppDelegate(NSObject):
         except ImportError:
             build_number = None
 
-        github_url = "https://github.com/jundot/omlx"
+        # github_url = "https://github.com/jundot/omlx"
+        github_url = "https://github.com/msreedata/omlx"
         # Put the build number at the top of Credits with a newline so it
         # renders on its own line. The standard About panel keeps
         # ApplicationVersion on a single line and doesn't respect \n

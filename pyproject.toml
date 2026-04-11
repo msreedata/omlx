@@ -108,9 +108,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jundot/omlx"
-Documentation = "https://github.com/jundot/omlx#readme"
-Repository = "https://github.com/jundot/omlx"
+Homepage = "https://github.com/msreedata/omlx"
+Documentation = "https://github.com/msreedata/omlx#readme"
+Repository = "https://github.com/msreedata/omlx"
 
 [project.scripts]
 omlx = "omlx.cli:main"
