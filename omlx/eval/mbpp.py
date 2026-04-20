@@ -33,30 +33,34 @@ EXEC_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024
 
 def _extract_code(response: str) -> str:
     """Extract Python code from model response."""
-    match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    try:
+        match = re.search(r"```python\s*\n(.*?)```", response, re.DOTALL)
+        if match:
+            return match.group(1).strip()
 
-    match = re.search(r"```\s*\n(.*?)```", response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
+        match = re.search(r"```\s*\n(.*?)```", response, re.DOTALL)
+        if match:
+            return match.group(1).strip()
 
-    lines = response.strip().split("\n")
-    code_lines = []
-    in_code = False
-    for line in lines:
-        if not in_code and (
-            line.startswith("def ")
-            or line.startswith("class ")
-            or line.startswith("import ")
-            or line.startswith("from ")
-            or line.startswith("#")
-        ):
-            in_code = True
-        if in_code:
-            code_lines.append(line)
+        lines = response.strip().split("\n")
+        code_lines = []
+        in_code = False
+        for line in lines:
+            if not in_code and (
+                line.startswith("def ")
+                or line.startswith("class ")
+                or line.startswith("import ")
+                or line.startswith("from ")
+                or line.startswith("#")
+            ):
+                in_code = True
+            if in_code:
+                code_lines.append(line)
 
-    return "\n".join(code_lines) if code_lines else response.strip()
+        return "\n".join(code_lines) if code_lines else response.strip()
+    except Exception as e:
+        logger.warning(f"MBPP: failed to extract code from response: {e}")
+        return response.strip() if response else ""
 
 
 def _set_resource_limits():
@@ -72,12 +76,17 @@ def _set_resource_limits():
 
 def _execute_with_tests(code: str, test_list: list[str], setup_code: str = "") -> tuple[bool, str]:
     """Execute generated code with assertion-based test cases."""
-    test_code = "\n".join(test_list)
-    script = f"{setup_code}\n{code}\n{test_code}\n"
+    tmp_path = None
+    try:
+        test_code = "\n".join(test_list)
+        script = f"{setup_code}\n{code}\n{test_code}\n"
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(script)
-        tmp_path = f.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(script)
+            tmp_path = f.name
+    except Exception as e:
+        logger.warning(f"MBPP: failed to create temp file for code execution: {e}")
+        return False, f"Failed to create temp file: {e}"
 
     try:
         result = subprocess.run(
@@ -101,10 +110,11 @@ def _execute_with_tests(code: str, test_list: list[str], setup_code: str = "") -
     except Exception as e:
         return False, str(e)[:500]
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 class MBPPBenchmark(BaseBenchmark):
@@ -115,20 +125,28 @@ class MBPPBenchmark(BaseBenchmark):
 
     async def load_dataset(self, sample_size: int = 0) -> list[dict]:
         """Load MBPP from bundled data."""
-        items = load_jsonl(DATA_DIR / "mbpp.jsonl")
+        try:
+            items = load_jsonl(DATA_DIR / "mbpp.jsonl")
+        except Exception as e:
+            logger.error(f"MBPP: failed to load dataset: {e}")
+            return []
 
         normalized = []
         for item in items:
-            test_list = item.get("test_list", [])
-            if not test_list:
+            try:
+                test_list = item.get("test_list", [])
+                if not test_list:
+                    continue
+                normalized.append({
+                    "id": str(item["task_id"]),
+                    "prompt": item["prompt"],
+                    "test_list": test_list,
+                    "test_setup_code": item.get("test_setup_code", ""),
+                    "question": item["prompt"],
+                })
+            except (KeyError, TypeError) as e:
+                logger.warning(f"MBPP: skipping malformed item: {e}")
                 continue
-            normalized.append({
-                "id": str(item["task_id"]),
-                "prompt": item["prompt"],
-                "test_list": test_list,
-                "test_setup_code": item.get("test_setup_code", ""),
-                "question": item["prompt"],
-            })
 
         logger.info(f"MBPP: loaded {len(normalized)} problems")
 
@@ -155,18 +173,28 @@ class MBPPBenchmark(BaseBenchmark):
         return [{"role": "user", "content": content}]
 
     def extract_answer(self, response: str, item: dict) -> str:
-        return self._extract_last_code_block(response)
+        try:
+            return self._extract_last_code_block(response)
+        except Exception as e:
+            logger.warning(f"MBPP: failed to extract answer for {item.get('id', '?')}: {e}")
+            return ""
 
     def check_answer(self, predicted: str, item: dict) -> bool:
-        if not predicted.strip():
-            return False
+        try:
+            if not predicted.strip():
+                return False
 
-        passed, error = _execute_with_tests(
-            predicted,
-            item["test_list"],
-            item.get("test_setup_code", ""),
-        )
-        return passed
+            passed, error = _execute_with_tests(
+                predicted,
+                item["test_list"],
+                item.get("test_setup_code", ""),
+            )
+            if error:
+                logger.debug(f"MBPP {item.get('id', '?')}: {error}")
+            return passed
+        except Exception as e:
+            logger.warning(f"MBPP: check_answer failed for {item.get('id', '?')}: {e}")
+            return False
 
     async def run(
         self,
@@ -188,35 +216,57 @@ class MBPPBenchmark(BaseBenchmark):
             batch = items[batch_start:batch_end]
             batch_time = time.time()
 
-            gen_tasks = [
-                self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
-                for j, item in enumerate(batch)
-            ]
-            gen_results = await asyncio.gather(*gen_tasks)
+            try:
+                gen_tasks = [
+                    self._eval_single(engine, item, batch_start + j, sampling_kwargs, enable_thinking)
+                    for j, item in enumerate(batch)
+                ]
+                gen_results = await asyncio.gather(*gen_tasks, return_exceptions=True)
+            except Exception as e:
+                logger.error(f"MBPP: batch generation failed at batch {batch_start}: {e}")
+                completed += len(batch)
+                continue
+
             gen_elapsed = time.time() - batch_time
 
-            for idx, item, response_text, prompt_text, _raw in sorted(gen_results, key=lambda x: x[0]):
-                code = self.extract_answer(response_text, item)
-                is_correct = self.check_answer(code, item)
+            for result_item in sorted(
+                (r for r in gen_results if not isinstance(r, BaseException)),
+                key=lambda x: x[0],
+            ):
+                try:
+                    idx, item, response_text, prompt_text, _raw = result_item
+                    code = self.extract_answer(response_text, item)
+                    is_correct = self.check_answer(code, item)
 
-                if is_correct:
-                    correct += 1
+                    if is_correct:
+                        correct += 1
 
-                results.append(
-                    QuestionResult(
-                        question_id=str(item.get("id", idx)),
-                        correct=is_correct,
-                        expected="(test cases)",
-                        predicted=code[:200] + "..." if len(code) > 200 else code,
-                        time_seconds=gen_elapsed / len(batch),
-                        question_text=prompt_text,
-                        raw_response=response_text,
+                    results.append(
+                        QuestionResult(
+                            question_id=str(item.get("id", idx)),
+                            correct=is_correct,
+                            expected="(test cases)",
+                            predicted=code[:200] + "..." if len(code) > 200 else code,
+                            time_seconds=gen_elapsed / len(batch),
+                            question_text=prompt_text,
+                            raw_response=response_text,
+                        )
                     )
-                )
+                except Exception as e:
+                    logger.warning(f"MBPP: failed to process result: {e}")
+                    continue
+
+            # Log any exceptions from gather
+            for r in gen_results:
+                if isinstance(r, BaseException):
+                    logger.warning(f"MBPP: individual generation failed: {r}")
 
             completed += len(batch)
             if on_progress:
-                await on_progress(completed, len(items))
+                try:
+                    await on_progress(completed, len(items))
+                except Exception as e:
+                    logger.warning(f"MBPP: progress callback failed: {e}")
 
         total_time = time.time() - start_time
         total = len(items)
