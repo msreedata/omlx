@@ -322,6 +322,247 @@ class TestThinkingMode:
 # --- Dataset Sampling Tests ---
 
 
+# --- Enable Thinking in Code Benchmarks Tests ---
+
+
+class TestEnableThinkingCodeBenchmarks:
+    """Tests for enable_thinking parameter in HumanEval, LiveCodeBench, and MBPP.
+
+    Verifies that commit ce1e517 correctly added enable_thinking to the
+    run() overrides in all three code benchmark classes.
+    """
+
+    def _make_mock_engine(self, response_text="def solve():\n    return 42"):
+        """Create a mock engine whose chat() captures kwargs."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        engine = MagicMock()
+        output = MagicMock()
+        output.text = response_text
+        engine.chat = AsyncMock(return_value=output)
+        return engine
+
+    # --- Signature tests: run() accepts enable_thinking ---
+
+    def test_humaneval_run_accepts_enable_thinking(self):
+        """HumanEvalBenchmark.run() has enable_thinking parameter."""
+        import inspect
+
+        from omlx.eval.humaneval import HumanEvalBenchmark
+        sig = inspect.signature(HumanEvalBenchmark.run)
+        assert "enable_thinking" in sig.parameters
+        param = sig.parameters["enable_thinking"]
+        assert param.default is False
+
+    def test_livecodebench_run_accepts_enable_thinking(self):
+        """LiveCodeBenchBenchmark.run() has enable_thinking parameter."""
+        import inspect
+
+        from omlx.eval.livecodebench import LiveCodeBenchBenchmark
+        sig = inspect.signature(LiveCodeBenchBenchmark.run)
+        assert "enable_thinking" in sig.parameters
+        param = sig.parameters["enable_thinking"]
+        assert param.default is False
+
+    def test_mbpp_run_accepts_enable_thinking(self):
+        """MBPPBenchmark.run() has enable_thinking parameter."""
+        import inspect
+
+        from omlx.eval.mbpp import MBPPBenchmark
+        sig = inspect.signature(MBPPBenchmark.run)
+        assert "enable_thinking" in sig.parameters
+        param = sig.parameters["enable_thinking"]
+        assert param.default is False
+
+    # --- Integration tests: enable_thinking propagates through run() ---
+
+    @pytest.mark.asyncio
+    async def test_humaneval_run_propagates_enable_thinking(self):
+        """HumanEval run() passes enable_thinking to engine.chat via chat_template_kwargs."""
+        from omlx.eval.humaneval import HumanEvalBenchmark
+
+        bench = HumanEvalBenchmark()
+        engine = self._make_mock_engine(
+            "```python\ndef has_close_elements(numbers, threshold):\n    return False\n```"
+        )
+        items = [{
+            "id": "HumanEval/0",
+            "prompt": "def has_close_elements(numbers, threshold):\n    ",
+            "test": "def check(candidate):\n    assert candidate([], 1.0) == False",
+            "entry_point": "has_close_elements",
+            "question": "def has_close_elements(numbers, threshold):\n    ",
+        }]
+
+        result = await bench.run(engine, items, enable_thinking=True)
+
+        # Verify enable_thinking was passed in chat_template_kwargs
+        call_kwargs = engine.chat.call_args
+        assert call_kwargs is not None
+        ct_kwargs = call_kwargs.kwargs.get("chat_template_kwargs", {})
+        assert ct_kwargs.get("enable_thinking") is True
+
+        # Verify BenchmarkResult records thinking_used
+        assert result.thinking_used is True
+        assert result.benchmark_name == "humaneval"
+
+    @pytest.mark.asyncio
+    async def test_livecodebench_run_propagates_enable_thinking(self):
+        """LiveCodeBench run() passes enable_thinking to engine.chat via chat_template_kwargs."""
+        from omlx.eval.livecodebench import LiveCodeBenchBenchmark
+
+        bench = LiveCodeBenchBenchmark()
+        engine = self._make_mock_engine(
+            "```python\nn = int(input())\nprint(n * 2)\n```"
+        )
+        items = [{
+            "id": "LCB/0",
+            "title": "Double",
+            "description": "Double the input number",
+            "inputs": ["5"],
+            "outputs": ["10"],
+            "difficulty": "easy",
+            "starter_code": "",
+        }]
+
+        result = await bench.run(engine, items, enable_thinking=True)
+
+        call_kwargs = engine.chat.call_args
+        assert call_kwargs is not None
+        ct_kwargs = call_kwargs.kwargs.get("chat_template_kwargs", {})
+        assert ct_kwargs.get("enable_thinking") is True
+
+        assert result.thinking_used is True
+        assert result.benchmark_name == "livecodebench"
+
+    @pytest.mark.asyncio
+    async def test_mbpp_run_propagates_enable_thinking(self):
+        """MBPP run() passes enable_thinking to engine.chat via chat_template_kwargs."""
+        from omlx.eval.mbpp import MBPPBenchmark
+
+        bench = MBPPBenchmark()
+        engine = self._make_mock_engine(
+            "```python\ndef add(a, b):\n    return a + b\n```"
+        )
+        items = [{
+            "id": "1",
+            "prompt": "Write a function to add two numbers.",
+            "test_list": ["assert add(1, 2) == 3"],
+            "test_setup_code": "",
+            "question": "Write a function to add two numbers.",
+        }]
+
+        result = await bench.run(engine, items, enable_thinking=True)
+
+        call_kwargs = engine.chat.call_args
+        assert call_kwargs is not None
+        ct_kwargs = call_kwargs.kwargs.get("chat_template_kwargs", {})
+        assert ct_kwargs.get("enable_thinking") is True
+
+        assert result.thinking_used is True
+        assert result.benchmark_name == "mbpp"
+
+    # --- Verify thinking_used=False when disabled ---
+
+    @pytest.mark.asyncio
+    async def test_humaneval_run_thinking_disabled_by_default(self):
+        """HumanEval run() sets thinking_used=False when enable_thinking is not passed."""
+        from omlx.eval.humaneval import HumanEvalBenchmark
+
+        bench = HumanEvalBenchmark()
+        engine = self._make_mock_engine(
+            "```python\ndef has_close_elements(numbers, threshold):\n    return False\n```"
+        )
+        items = [{
+            "id": "HumanEval/0",
+            "prompt": "def has_close_elements(numbers, threshold):\n    ",
+            "test": "def check(candidate):\n    assert candidate([], 1.0) == False",
+            "entry_point": "has_close_elements",
+            "question": "def has_close_elements(numbers, threshold):\n    ",
+        }]
+
+        result = await bench.run(engine, items)
+
+        call_kwargs = engine.chat.call_args
+        ct_kwargs = call_kwargs.kwargs.get("chat_template_kwargs", {})
+        assert ct_kwargs.get("enable_thinking") is False
+        assert result.thinking_used is False
+
+    # --- Verify token budget increases with enable_thinking ---
+
+    @pytest.mark.asyncio
+    async def test_enable_thinking_increases_max_tokens(self):
+        """When enable_thinking=True, max_tokens is increased to at least THINKING_MIN_TOKENS."""
+        from omlx.eval.base import THINKING_MIN_TOKENS
+        from omlx.eval.humaneval import HumanEvalBenchmark
+
+        bench = HumanEvalBenchmark()
+        engine = self._make_mock_engine()
+        items = [{
+            "id": "HumanEval/0",
+            "prompt": "def f():\n    ",
+            "test": "def check(candidate):\n    pass",
+            "entry_point": "f",
+            "question": "def f():\n    ",
+        }]
+
+        await bench.run(engine, items, enable_thinking=True)
+
+        call_kwargs = engine.chat.call_args
+        max_tokens = call_kwargs.kwargs.get("max_tokens", 0)
+        assert max_tokens >= THINKING_MIN_TOKENS
+
+    @pytest.mark.asyncio
+    async def test_disable_thinking_uses_default_max_tokens(self):
+        """When enable_thinking=False, max_tokens is the benchmark default."""
+        from omlx.eval.humaneval import HumanEvalBenchmark
+
+        bench = HumanEvalBenchmark()
+        engine = self._make_mock_engine()
+        items = [{
+            "id": "HumanEval/0",
+            "prompt": "def f():\n    ",
+            "test": "def check(candidate):\n    pass",
+            "entry_point": "f",
+            "question": "def f():\n    ",
+        }]
+
+        await bench.run(engine, items, enable_thinking=False)
+
+        call_kwargs = engine.chat.call_args
+        max_tokens = call_kwargs.kwargs.get("max_tokens", 0)
+        assert max_tokens == bench.get_max_tokens()
+
+    # --- Verify _strip_think_tags is applied to response ---
+
+    @pytest.mark.asyncio
+    async def test_thinking_tags_stripped_from_code_response(self):
+        """Think tags in model output are stripped before answer extraction."""
+        from omlx.eval.mbpp import MBPPBenchmark
+
+        bench = MBPPBenchmark()
+        engine = self._make_mock_engine(
+            "<think>Let me reason about this...</think>"
+            "```python\ndef add(a, b):\n    return a + b\n```"
+        )
+        items = [{
+            "id": "1",
+            "prompt": "Write a function to add two numbers.",
+            "test_list": ["assert add(1, 2) == 3"],
+            "test_setup_code": "",
+            "question": "Write a function to add two numbers.",
+        }]
+
+        result = await bench.run(engine, items, enable_thinking=True)
+
+        # The raw_response in question_results should have think tags stripped
+        assert len(result.question_results) == 1
+        qr = result.question_results[0]
+        assert "<think>" not in qr.raw_response or "<think>" not in qr.predicted
+
+
+# --- Dataset Sampling Tests ---
+
+
 class TestSampling:
     def test_deterministic_sample_reproducible(self):
         """Same input always produces same output."""
