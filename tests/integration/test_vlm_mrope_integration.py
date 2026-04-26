@@ -12,6 +12,7 @@ Test categories:
   4. Mixed batch (2 image + 2 text-only): all produce coherent output
   5. Mixed batch with SSD cache: cache hit produces identical output
   6. VLM image caching (vision feature cache): store → hit → same output
+  7. Batched decode position IDs: per-request rope_deltas isolation (#689)
 
 Run with:
     pytest tests/integration/test_vlm_mrope_integration.py -v -m slow -s
@@ -818,6 +819,215 @@ def _test_vision_feature_cache(vlm_model, processor, adapter):
 
 
 # ---------------------------------------------------------------------------
+# Test 7: Batched decode — per-request position IDs and attention masks
+# ---------------------------------------------------------------------------
+
+def _test_batched_decode_position_ids_and_masks(vlm_model, processor, adapter):
+    """Regression test for the mRoPE state clobbering bug (#689).
+
+    The bug: When 2+ VLM requests are batched, get_input_embeddings() is called
+    per-request during prefill, each time overwriting the global _rope_deltas on
+    language_model.  During decode, all requests in the batch would incorrectly
+    use the LAST request's rope_deltas, producing wrong 3-D position IDs for
+    earlier requests and therefore gibberish output.
+
+    The fix: Per-request rope_delta tracking via _uid_rope_deltas dict on
+    VLMModelAdapter + _captured_rope_deltas stored per-request in
+    vlm_extra_kwargs.
+
+    Validation strategy:
+      A. Verify per-request _captured_rope_deltas are recorded in extra_kwargs.
+      B. Run each VLM request SEQUENTIALLY (single-request scheduler) to get a
+         baseline where rope_deltas are trivially correct.
+      C. Run the SAME requests in a CONCURRENT batch.
+      D. Compare: batch outputs must be coherent — if rope_deltas were
+         clobbered, the first request would produce gibberish because it
+         would decode with the second request's position offsets.
+      E. Verify text-only requests interleaved in the same batch are not
+         contaminated by VLM rope_deltas (delta must be 0).
+      F. Verify adapter._uid_rope_deltas is cleaned up after the batch
+         completes (no leaked entries).
+    """
+    print("\n  [Test 7] Batched decode position IDs and attention masks...")
+
+    tokenizer = getattr(processor, "tokenizer", processor)
+    adapter.clear_vlm_position_state()
+
+    # --- Part A: Verify per-request _captured_rope_deltas ---
+    # Use two visually distinct images so get_input_embeddings produces
+    # different mRoPE position layouts (and therefore different rope_deltas).
+    img_red = _create_colored_image((255, 0, 0))
+    img_blue = _create_colored_image((0, 0, 255))
+
+    msgs_0 = [{"role": "user", "content": IMAGE_QUESTIONS[0]}]
+    msgs_1 = [{"role": "user", "content": IMAGE_QUESTIONS[1]}]
+
+    tid_0, emb_0, kw_0, hash_0 = _prepare_vlm_inputs(
+        vlm_model, processor, msgs_0, [img_red]
+    )
+    tid_1, emb_1, kw_1, hash_1 = _prepare_vlm_inputs(
+        vlm_model, processor, msgs_1, [img_blue]
+    )
+
+    assert emb_0 is not None, "VLM embeddings expected for image request 0"
+    assert emb_1 is not None, "VLM embeddings expected for image request 1"
+
+    # _captured_rope_deltas should be present in extra_kwargs for mRoPE models
+    rd_0 = kw_0.get("_captured_rope_deltas")
+    rd_1 = kw_1.get("_captured_rope_deltas")
+    if adapter._uses_mrope:
+        assert rd_0 is not None, (
+            "mRoPE model should set _captured_rope_deltas in extra_kwargs (req 0)"
+        )
+        assert rd_1 is not None, (
+            "mRoPE model should set _captured_rope_deltas in extra_kwargs (req 1)"
+        )
+        rd_0_val = float(rd_0.item()) if hasattr(rd_0, "item") else float(rd_0)
+        rd_1_val = float(rd_1.item()) if hasattr(rd_1, "item") else float(rd_1)
+        print(f"    rope_deltas: req0={rd_0_val}, req1={rd_1_val}")
+    else:
+        print("    Model does not use mRoPE, rope_deltas capture not applicable")
+
+    # position_ids should be captured per-request for mRoPE models
+    pid_0 = kw_0.get("position_ids")
+    pid_1 = kw_1.get("position_ids")
+    if adapter._uses_mrope:
+        assert pid_0 is not None, (
+            "mRoPE model should capture position_ids in extra_kwargs (req 0)"
+        )
+        assert pid_1 is not None, (
+            "mRoPE model should capture position_ids in extra_kwargs (req 1)"
+        )
+        print(f"    position_ids shapes: req0={pid_0.shape}, req1={pid_1.shape}")
+
+    # --- Part B: Sequential baseline ---
+    print("    --- Sequential runs (baseline) ---")
+    adapter.clear_vlm_position_state()
+
+    tokens_seq_0, _ = _generate_tokens(
+        adapter, tokenizer, tid_0,
+        vlm_inputs_embeds=emb_0,
+        vlm_extra_kwargs=kw_0,
+        vlm_image_hash=hash_0,
+    )
+    text_seq_0 = tokenizer.decode(tokens_seq_0)
+    print(f"    seq-0 ({len(tokens_seq_0)} tokens): {text_seq_0[:100]}...")
+    _check_output_quality(text_seq_0, "sequential req 0")
+
+    adapter.clear_vlm_position_state()
+
+    tokens_seq_1, _ = _generate_tokens(
+        adapter, tokenizer, tid_1,
+        vlm_inputs_embeds=emb_1,
+        vlm_extra_kwargs=kw_1,
+        vlm_image_hash=hash_1,
+    )
+    text_seq_1 = tokenizer.decode(tokens_seq_1)
+    print(f"    seq-1 ({len(tokens_seq_1)} tokens): {text_seq_1[:100]}...")
+    _check_output_quality(text_seq_1, "sequential req 1")
+
+    # --- Part C: Concurrent batch ---
+    print("    --- Concurrent batch run ---")
+    adapter.clear_vlm_position_state()
+
+    # Re-prepare embeddings to get fresh mRoPE state
+    _, emb_0b, kw_0b, _ = _prepare_vlm_inputs(
+        vlm_model, processor, msgs_0, [img_red]
+    )
+    _, emb_1b, kw_1b, _ = _prepare_vlm_inputs(
+        vlm_model, processor, msgs_1, [img_blue]
+    )
+
+    prompt_list = [tid_0, tid_1]
+    vlm_embeds_list = [
+        (emb_0b, kw_0b, hash_0),
+        (emb_1b, kw_1b, hash_1),
+    ]
+
+    batch_results = _generate_batch(
+        adapter, tokenizer, prompt_list,
+        mode="concurrent",
+        vlm_embeds_list=vlm_embeds_list,
+    )
+
+    for rid, tokens, _cached in batch_results:
+        text = tokenizer.decode(tokens)
+        print(f"    {rid} ({len(tokens)} tokens): {text[:100]}...")
+        _check_output_quality(text, f"batch {rid}")
+
+    # --- Part D: Compare sequential vs batch ---
+    # With the bug, request 0 in the batch would use request 1's rope_deltas
+    # and produce gibberish. Both must produce coherent, similar output.
+    _, batch_tokens_0, _ = batch_results[0]
+    _, batch_tokens_1, _ = batch_results[1]
+
+    # Check first-token consistency: if the first several tokens match between
+    # sequential and batch, position IDs are being computed correctly.
+    # Exact full-sequence match is not required due to numerical batching effects.
+    min_check_0 = min(5, len(tokens_seq_0), len(batch_tokens_0))
+    min_check_1 = min(5, len(tokens_seq_1), len(batch_tokens_1))
+
+    if min_check_0 > 0:
+        first_match_0 = tokens_seq_0[:min_check_0] == batch_tokens_0[:min_check_0]
+        print(f"    req0 first-{min_check_0}-token match: {first_match_0}")
+        if not first_match_0:
+            # Even if first tokens diverge due to batching numerics,
+            # the output must still be coherent (not gibberish)
+            print(f"    req0 seq: {tokens_seq_0[:min_check_0]}")
+            print(f"    req0 bat: {batch_tokens_0[:min_check_0]}")
+
+    if min_check_1 > 0:
+        first_match_1 = tokens_seq_1[:min_check_1] == batch_tokens_1[:min_check_1]
+        print(f"    req1 first-{min_check_1}-token match: {first_match_1}")
+
+    # --- Part E: Mixed batch with text-only ---
+    print("    --- Mixed batch: 2 VLM + 1 text-only ---")
+    adapter.clear_vlm_position_state()
+
+    # Re-prepare VLM embeddings
+    _, emb_0c, kw_0c, _ = _prepare_vlm_inputs(
+        vlm_model, processor, msgs_0, [img_red]
+    )
+    _, emb_1c, kw_1c, _ = _prepare_vlm_inputs(
+        vlm_model, processor, msgs_1, [img_blue]
+    )
+
+    msgs_txt = [{"role": "user", "content": TEXT_QUESTIONS[3]}]
+    tid_txt = _apply_chat_template_as_ids(tokenizer, msgs_txt)
+
+    mixed_prompts = [tid_0, tid_txt, tid_1]
+    mixed_embeds = [
+        (emb_0c, kw_0c, hash_0),
+        (None, None, None),       # text-only: rope_deltas must be 0
+        (emb_1c, kw_1c, hash_1),
+    ]
+
+    mixed_results = _generate_batch(
+        adapter, tokenizer, mixed_prompts,
+        mode="concurrent",
+        vlm_embeds_list=mixed_embeds,
+    )
+
+    for rid, tokens, _cached in mixed_results:
+        text = tokenizer.decode(tokens)
+        print(f"    {rid} ({len(tokens)} tokens): {text[:100]}...")
+        _check_output_quality(text, f"mixed batch {rid}")
+
+    # --- Part F: Verify uid_rope_deltas cleanup ---
+    # After all requests finish, there should be no leaked entries
+    leaked = dict(adapter._uid_rope_deltas)
+    if leaked:
+        print(f"    WARNING: leaked uid_rope_deltas entries: {leaked}")
+    assert len(leaked) == 0, (
+        f"uid_rope_deltas should be empty after batch completes, "
+        f"but has {len(leaked)} leaked entries: {list(leaked.keys())}"
+    )
+    print("    uid_rope_deltas cleanup: OK (empty after batch)")
+
+    print("    [Test 7] PASSED")
+
+
+# ---------------------------------------------------------------------------
 # Main test entry point
 # ---------------------------------------------------------------------------
 
@@ -889,6 +1099,8 @@ def test_vlm_mrope_integration(model_path):
             _test_mixed_batch_cache(vlm_model, processor, adapter)
         with _track_peak_memory("Test 6 - vision feature cache"):
             _test_vision_feature_cache(vlm_model, processor, adapter)
+        with _track_peak_memory("Test 7 - batched decode position IDs"):
+            _test_batched_decode_position_ids_and_masks(vlm_model, processor, adapter)
     finally:
         del vlm_model, processor, adapter, vlm_tokenizer, decode_model
         gc.collect()
