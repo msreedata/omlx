@@ -274,16 +274,36 @@
             hfSearchMaxParams: '',
             hfSearchMaxSize: '',
             hfSearchMinSize: '',
-            // Table sort state for Browse Models
+             hfSearchExcludePatterns: 'fp16', // Pre-filled default, comma-separated
+             // Table sort state for Browse Models
             hfTableSort: 'downloads',
             hfTableSortDir: 'desc',
 
             // Computed: check if any filters are active
-            get hfSearchFiltersActive() {
-                return this.hfSearchMinParams || this.hfSearchMaxParams || this.hfSearchMaxSize || this.hfSearchMinSize;
-            },
-
-            // Search history
+             get hfSearchFiltersActive() {
+             return this.hfSearchMinParams || this.hfSearchMaxParams || this.hfSearchMaxSize || this.hfSearchMinSize;
+             },
+            
+             // Computed: filtered HF models based on exclude patterns
+             get filteredHfModels() {
+             const patterns = this.hfSearchExcludePatterns
+             .split(',')
+             .map(p => p.trim().toLowerCase())
+             .filter(p => p.length > 0);
+             
+             if (patterns.length === 0) {
+             return this.hfSearchResults;
+             }
+             
+             return this.hfSearchResults.filter(model => {
+             return !patterns.some(pattern =>
+             (model.name || '').toLowerCase().includes(pattern) ||
+             (model.repo_id || '').toLowerCase().includes(pattern)
+             );
+             });
+             },
+            
+             // Search history
             hfSearchHistory: JSON.parse(localStorage.getItem('hfSearchHistory') || '[]'),
             hfSearchHistoryOpen: false,
 
@@ -2412,8 +2432,22 @@
                 }
                 return `~${actual} obs / ${estimated} est`;
             },
-
-            copyToClipboard(text) {
+            
+             formatDateYYYYMMDD(dateString) {
+             if (!dateString) return '—';
+             try {
+             const date = new Date(dateString);
+             if (isNaN(date.getTime())) return dateString;
+             const year = date.getFullYear();
+             const month = String(date.getMonth() + 1).padStart(2, '0');
+             const day = String(date.getDate()).padStart(2, '0');
+             return `${year}-${month}-${day}`;
+             } catch (e) {
+             return dateString;
+             }
+             },
+            
+             copyToClipboard(text) {
                 if (navigator.clipboard && window.isSecureContext) {
                     navigator.clipboard.writeText(text).catch(() => {
                         this._copyFallback(text);
@@ -4291,10 +4325,10 @@
                 const page = this.hfPage[tab] || 1;
                 const size = this.hfPageSize;
                 let list;
-                if (tab === 'trending') list = this.hfRecommended.trending || [];
-                else if (tab === 'popular') list = this.hfRecommended.popular || [];
-                else list = this.hfSearchResults || [];
-                // Apply table sorting
+                 if (tab === 'trending') list = this.hfRecommended.trending || [];
+                 else if (tab === 'popular') list = this.hfRecommended.popular || [];
+                 else list = this.filteredHfModels || [];
+                 // Apply table sorting
                 const sorted = this.sortModels(list);
                 return sorted.slice((page - 1) * size, page * size);
             },
