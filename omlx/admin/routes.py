@@ -4518,20 +4518,35 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
     from ..model_discovery import _resolve_hf_cache_entry
 
     def _add_model(model_path: Path, model_name: str) -> None:
-        if model_name in seen_names:
-            return
-        seen_names.add(model_name)
-        total_size = sum(
-            f.stat().st_size for f in model_path.rglob("*") if f.is_file()
-        )
-        models.append(
-            {
-                "name": model_name,
-                "path": str(model_path),
-                "size": total_size,
-                "size_formatted": format_size(total_size),
-            }
-        )
+     if model_name in seen_names:
+     return
+     seen_names.add(model_name)
+     total_size = sum(
+     f.stat().st_size for f in model_path.rglob("*") if f.is_file()
+     )
+     # Compute parent_folder (immediate parent subfolder name, or None for root models)
+     parts = model_path.parts
+     parent_folder = None
+     for i, part in enumerate(parts):
+     if part == 'models' and i + 2 < len(parts) and parts[i + 2] == model_name:
+     parent_folder = parts[i + 1]
+     break
+    
+     # Build copy_name (includes parent folder prefix for clipboard)
+     copy_name = model_name
+     if parent_folder:
+     copy_name = f"{parent_folder}/{model_name}"
+    
+     models.append(
+     {
+     "name": model_name,
+     "path": str(model_path),
+     "parent_folder": parent_folder,
+     "copy_name": copy_name,
+     "size": total_size,
+     "size_formatted": format_size(total_size),
+     }
+     )
 
     models = []
     seen_names: set[str] = set()
