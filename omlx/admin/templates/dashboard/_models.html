@@ -1348,7 +1348,19 @@
                                                       class="block w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-300 absolute top-0.5 left-0.5"></span>
                                             </button>
                                         </div>
-                                        <!-- Non-quant weight dtype -->
+                                         <!-- Custom Suffix -->
+                                         <div class="flex items-center justify-between gap-4">
+                                         <div class="flex-1 min-w-0">
+                                         <span class="text-sm text-neutral-600">Custom Suffix (optional)</span>
+                                         <p class="text-xs text-neutral-400 mt-0.5 leading-relaxed">Alphanumeric, hyphens, underscores only. Max 20 chars. Appended at end.</p>
+                                         </div>
+                                         <input type="text" x-model="oqCustomSuffix"
+                                         placeholder="e.g., mybuild, v2"
+                                         maxlength="20"
+                                         pattern="[a-zA-Z0-9_-]+"
+                                         class="w-40 px-3 py-1.5 text-xs text-right border border-neutral-200 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all">
+                                         </div>
+                                         <!-- Non-quant weight dtype -->
                                         <div class="flex items-center justify-between gap-4">
                                             <div class="flex-1 min-w-0">
                                                 <span class="text-sm text-neutral-600">{{ t('models.oq.dtype_label') }}</span>

@@ -365,8 +365,9 @@
             oqDtype: 'bfloat16',
             oqSensitivityModelPath: '',
             oqPreserveMtp: false,
-
-            // oQ Uploader state
+             oqCustomSuffix: '',
+            
+             // oQ Uploader state
             uploadHfToken: localStorage.getItem('omlx-hf-upload-token') || '',
             uploadHfUsername: '',
             uploadHfOrgs: [],
@@ -3888,7 +3889,8 @@
                             text_only: this.oqTextOnly,
                             dtype: this.oqDtype,
                             preserve_mtp: this.oqSelectedModelHasMtp() ? this.oqPreserveMtp : false,
-                        }),
+                             custom_suffix: this.oqCustomSuffix,
+                             }),
                     });
                     const data = await response.json().catch(() => ({}));
                     if (response.ok) {

@@ -708,10 +708,11 @@ def _build_quant_plan(
 
 
 def resolve_output_name(
-    model_name: str,
-    oq_level: int,
-    dtype: str = "bfloat16",
-    preserve_mtp: bool = False,
+ model_name: str,
+ oq_level: int,
+ dtype: str = "bfloat16",
+ preserve_mtp: bool = False,
+ custom_suffix: str = "",
 ) -> str:
     """Generate output model name: strip existing quant suffixes, append oQ tag.
 
@@ -741,8 +742,12 @@ def resolve_output_name(
     if dtype == "float16":
         suffix += "-fp16"
     if preserve_mtp:
-        suffix += "-mtp"
-    return f"{base}{suffix}"
+     suffix += "-mtp"
+     result = f"{base}{suffix}"
+     # Append custom suffix if provided
+     if custom_suffix:
+     result = f"{result}-{custom_suffix}"
+     return result
 
 
 
