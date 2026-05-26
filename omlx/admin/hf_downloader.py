@@ -314,7 +314,7 @@ class HFDownloader:
             kwargs = {
                 "sort": sort,
                 "limit": limit,
-                "expand": ["safetensors", "downloads", "likes", "trendingScore"],
+                "expand": ["safetensors", "downloads", "likes", "trendingScore", "lastModified"],
             }
             if mlx_only:
                 kwargs["author"] = "mlx-community"

@@ -276,8 +276,8 @@
             hfSearchMinSize: '',
              hfSearchExcludePatterns: 'fp16', // Pre-filled default, comma-separated
              // Table sort state for Browse Models
-            hfTableSort: 'downloads',
-            hfTableSortDir: 'desc',
+            hfTableSort: 'lastUpdated',
+             hfTableSortDir: 'desc',
 
             // Computed: check if any filters are active
              get hfSearchFiltersActive() {
