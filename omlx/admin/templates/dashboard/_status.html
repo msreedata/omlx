@@ -328,9 +328,9 @@
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs text-neutral-400">SSD</span>
                                     <div class="w-20 h-2 rounded-full overflow-hidden gauge-track">
-                                        <div class="h-full bg-amber-400 rounded-full transition-all duration-500"
-                                             :style="'width: ' + runtimeSsdCachePercent + '%'"></div>
-                                    </div>
+                                     <div class="h-full rounded-full transition-all duration-500"
+                                     :style="'width: ' + runtimeSsdCachePercent + '%; background-color: ' + (dashboard.progressBarTheme === 'classic' ? '#a3a3a3' : '#fbbf24')"></div>
+                                     </div>
                                     <span class="text-xs font-medium text-neutral-500 whitespace-nowrap"
                                           x-text="formatSizeBytes(stats.runtime_cache?.total_size_bytes || 0) + ' / ' + formatSizeBytes(stats.runtime_cache?.disk_max_bytes || 0) + ' · ' + formatNumber(stats.runtime_cache?.total_num_files || 0) + ' files'"></span>
                                 </div>
