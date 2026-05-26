@@ -82,9 +82,13 @@
                                         <div class="min-w-0 flex-1 flex items-center gap-2">
                                          <span class="text-sm font-medium text-neutral-900 truncate" x-text="model.name"></span>
                                          <template x-if="model.parent_folder">
-                                         <span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-50 text-blue-600 border border-blue-200 flex-shrink-0"
-                                         x-text="model.parent_folder"></span>
-                                         </template>
+                                          <span :class="{
+                                          'bg-red-50 text-red-600 border-red-200': model.parent_folder === 'linked',
+                                          'bg-green-50 text-green-600 border-green-200': model.parent_folder === 'local',
+                                          'bg-blue-50 text-blue-600 border-blue-200': model.parent_folder !== 'linked' && model.parent_folder !== 'local'
+                                          }" class="px-1.5 py-0.5 text-[10px] font-medium rounded flex-shrink-0 border"
+                                          x-text="model.parent_folder"></span>
+                                          </template>
                                          <template x-if="models.find(m => m.id === model.name)?.settings?.model_alias">
                                          <span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-neutral-100 text-neutral-500 border border-neutral-200 truncate max-w-[120px]"
                                          x-text="models.find(m => m.id === model.name)?.settings?.model_alias"></span>
