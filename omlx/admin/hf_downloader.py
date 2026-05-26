@@ -422,14 +422,14 @@ class HFDownloader:
         )
 
         results = []
-         # Debug: log first model's attributes to see what's available
-         first_model = next(iter(models), None)
-         if first_model:
-         logger.debug(f"HF model attributes: id={first_model.id}, last_modified={getattr(first_model, 'last_modified', 'NOT_FOUND')}")
-         logger.debug(f"HF model __dict__ keys: {list(first_model.__dict__.keys())[:20]}")
-         
-         for m in models:
-         params = None
+        # Debug: log first model attributes to see what is available
+        first_model = next(iter(models), None)
+        if first_model:
+            logger.debug(f"HF model attributes: id={first_model.id}, last_modified={getattr(first_model, 'last_modified', 'NOT_FOUND')}")
+            logger.debug(f"HF model __dict__ keys: {list(first_model.__dict__.keys())[:20]}")
+        
+        for m in models:
+            params = None
             params_formatted = None
             size = 0
 
