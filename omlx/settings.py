@@ -114,7 +114,7 @@ class ServerSettings:
     port: int = 8000
     log_level: str = "info"
     cors_origins: list[str] = field(
-        default_factory=lambda: ["http://localhost", "http://localhost:*", "http://127.0.0.1", "http://127.0.0.1:*"]
+        default_factory=lambda: ["http://localhost:8000", "http://127.0.0.1:8000"]
     )
     server_aliases: list[str] = field(default_factory=list)
     sse_keepalive_mode: str = "chunk"
@@ -130,7 +130,7 @@ class ServerSettings:
             host=data.get("host", "127.0.0.1"),
             port=data.get("port", 8000),
             log_level=data.get("log_level", "info"),
-            cors_origins=data.get("cors_origins", ["http://localhost", "http://localhost:*", "http://127.0.0.1", "http://127.0.0.1:*"]),
+            cors_origins=data.get("cors_origins", ["http://localhost:8000", "http://127.0.0.1:8000"]),
             server_aliases=data.get("server_aliases", []),
             sse_keepalive_mode=data.get("sse_keepalive_mode", "chunk"),
         )

@@ -42,7 +42,7 @@ class TestServerSettings:
         assert settings.host == "127.0.0.1"
         assert settings.port == 8000
         assert settings.log_level == "info"
-        assert settings.cors_origins == ["*"]
+        assert settings.cors_origins == ["http://localhost:8000", "http://127.0.0.1:8000"]
         assert settings.sse_keepalive_mode == "chunk"
 
     def test_custom_values(self):
@@ -66,7 +66,7 @@ class TestServerSettings:
             "host": "127.0.0.1",
             "port": 8000,
             "log_level": "info",
-            "cors_origins": ["*"],
+            "cors_origins": ["http://localhost:8000", "http://127.0.0.1:8000"],
             "server_aliases": [],
             "sse_keepalive_mode": "chunk",
         }
@@ -85,7 +85,7 @@ class TestServerSettings:
         assert settings.host == "0.0.0.0"
         assert settings.port == 9000
         assert settings.log_level == "debug"
-        assert settings.cors_origins == ["*"]  # default
+        assert settings.cors_origins == ["http://localhost:8000", "http://127.0.0.1:8000"] # default
 
     def test_from_dict_with_cors_origins(self):
         """Test creation from dictionary with cors_origins."""
@@ -107,7 +107,7 @@ class TestServerSettings:
         assert settings.host == "127.0.0.1"  # default
         assert settings.port == 9000
         assert settings.log_level == "info"  # default
-        assert settings.cors_origins == ["*"]  # default
+        assert settings.cors_origins == ["http://localhost:8000", "http://127.0.0.1:8000"] # default
 
 
 class TestModelSettings:
@@ -857,7 +857,7 @@ class TestGlobalSettings:
             )
 
             settings = GlobalSettings.load(base_path=tmpdir)
-            assert settings.server.cors_origins == ["*"]
+            assert settings.server.cors_origins == ["http://localhost:8000", "http://127.0.0.1:8000"]
 
     def test_save_creates_directory(self):
         """Test save creates base directory if needed."""
@@ -1847,10 +1847,10 @@ class TestCORSMiddleware:
             resp = client.options(
                 "/v1/models",
                 headers={
-                    "Origin": "https://example.com",
+                    "Origin": "http://localhost:8000",
                     "Access-Control-Request-Method": "GET",
                 },
             )
             assert resp.status_code == 200
             assert "access-control-allow-origin" in resp.headers
-            assert resp.headers["access-control-allow-origin"] == "*"
+            assert resp.headers["access-control-allow-origin"] == "http://localhost:8000"

@@ -89,7 +89,7 @@ class TestServerConfig:
         assert config.host == "0.0.0.0"
         assert config.port == 8000
         assert config.log_level == "info"
-        assert config.cors_origins == ["*"]
+        assert config.cors_origins == ["http://localhost:8000", "http://127.0.0.1:8000"]
 
     def test_custom_values(self):
         """Test custom configuration values."""
