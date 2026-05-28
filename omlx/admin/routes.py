@@ -4535,13 +4535,16 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
         parent_folder = None
         is_archived = False
         for i, part in enumerate(parts):
-            if part == 'models' and i + 2 < len(parts) and parts[i + 2] == model_name:
-                parent_folder = parts[i + 1]
-                # Check if this is an archived model (parent is '_archived')
-                if parent_folder == '_archived':
+            if part == 'models':
+                # Case 1: 2-level path — models/<parent>/<model_name>
+                if i + 2 < len(parts) and parts[i + 2] == model_name:
+                    parent_folder = parts[i + 1]
+                    break
+                # Case 2: 3-level archived path — models/_archived/<parent>/<model_name>
+                if i + 3 < len(parts) and parts[i + 1] == '_archived' and parts[i + 3] == model_name:
                     is_archived = True
-                    parent_folder = None # Don't show '_archived' as parent badge
-                break
+                    parent_folder = parts[i + 2]
+                    break
      
         # Build copy_name (includes parent folder prefix for clipboard)
         copy_name = model_name
