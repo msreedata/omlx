@@ -3781,14 +3781,7 @@ function dashboard() {
                 if (response.ok) {
                     const data = await response.json();
                     const allModels = (data.models || []).map(model => {
-                        // For archived models, extract the parent folder from the path
-                        if (model.is_archived && model.path) {
-                            const pathParts = model.path.split('/');
-                            const archiveIdx = pathParts.indexOf('_archived');
-                            if (archiveIdx > -1 && archiveIdx + 1 < pathParts.length) {
-                                model._archive_parent_folder = pathParts[archiveIdx + 1];
-                            }
-                        }
+                        // Backend already provides correct parent_folder (None for 2-level, folder name for 3-level)
                         return model;
                     });
                     // Split into local and archived sections

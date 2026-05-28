@@ -1648,6 +1648,24 @@ async def list_models(is_admin: bool = Depends(require_admin)):
 
         models.append(model_data)
 
+    # Clean up empty directories inside _archived folders
+    for model_dir in model_dirs:
+        if not model_dir.exists():
+            continue
+        archived_dir = model_dir / '_archived'
+        if not archived_dir.is_dir():
+            continue
+        # Walk bottom-up to remove empty dirs (but keep _archived itself)
+        for dirpath, dirnames, filenames in os.walk(str(archived_dir), topdown=False):
+            dp = Path(dirpath)
+            if dp == archived_dir:
+                continue  # Never remove the _archived folder itself
+            try:
+                if not any(dp.iterdir()):
+                    dp.rmdir()  # Only removes if empty
+            except OSError:
+                pass
+
     return {"models": models}
 
 

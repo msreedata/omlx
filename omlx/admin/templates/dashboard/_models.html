@@ -157,7 +157,7 @@
                         </div>
 
                         <!-- Archived Models Section -->
-                        <div class="bg-white rounded-2xl border border-neutral-200 overflow-hidden" x-show="archivedModelCount > 0">
+                        <div class="mt-6 bg-white rounded-2xl border border-neutral-200 overflow-hidden" x-show="archivedModelCount > 0">
                             <div class="flex items-center justify-between px-4 sm:px-6 py-4 bg-neutral-100 border-b border-neutral-200">
                              <div class="flex items-center gap-3">
                              <i data-lucide="archive" class="w-4 h-4 text-neutral-500"></i>
@@ -200,10 +200,10 @@
                                  <div class="min-w-0 flex-1 flex items-center gap-2">
                                  <span class="text-sm font-medium text-neutral-900 truncate" x-text="model.name"></span>
                                  <!-- Archive parent folder badge -->
-                                 <template x-if="model._archive_parent_folder">
+                                 <template x-if="model.parent_folder">
                                  <span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-neutral-100 text-neutral-500 border border-neutral-200 flex items-center gap-1">
                                  <i data-lucide="archive" class="w-3 h-3"></i>
-                                 <span x-text="model._archive_parent_folder"></span>
+                                 <span x-text="model.parent_folder"></span>
                                  </span>
                                  </template>
                                          <template x-if="models.find(m => m.id === model.name)?.settings?.model_alias">
