@@ -4596,6 +4596,13 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
                         continue
                     if (child / "config.json").exists():
                         _add_model(child, child.name)
+                    else:
+                        # Level 3: nested folder inside organization (e.g. _archived/Jundot/model)
+                        for grandchild in sorted(child.iterdir()):
+                            if not grandchild.is_dir() or grandchild.name.startswith("."):
+                                continue
+                            if (grandchild / "config.json").exists():
+                                _add_model(grandchild, grandchild.name)
 
     return {"models": models}
 
