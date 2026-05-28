@@ -89,7 +89,7 @@
                                 <template x-for="model in localModels" :key="model.name">
                                  <div class="px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 hover:bg-neutral-50 transition-colors"
                                  :class="{'bg-blue-50': isLocalSelected(model.name)}"
-                                 :style="model.is_symlink ? 'opacity: 0.5;' : ''">
+                                 >
                                  <!-- Checkbox -->
                                  <div class="flex items-center gap-2">
                                  <input type="checkbox"

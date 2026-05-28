@@ -4671,15 +4671,25 @@ async def delete_hf_model(
             return
         raise exc_info[1].with_traceback(exc_info[2])
 
-    try:
-        if sys.version_info >= (3, 12):
-            shutil.rmtree(model_path, onexc=_handle_onexc)
-        else:
-            shutil.rmtree(model_path, onerror=_handle_onerror)
-        logger.info(f"Deleted model directory: {model_path}")
-    except Exception as e:
-        logger.error(f"Failed to delete model directory {model_path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete model: {e}")
+    # Safety: if model_path is a symlink, only remove the link itself
+    # (not the target directory). Using os.unlink() which does NOT follow symlinks.
+    if os.path.islink(str(model_path)):
+        try:
+            os.unlink(str(model_path))
+            logger.info(f"Deleted symlink: {model_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete symlink {model_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete symlink: {e}")
+    else:
+        try:
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(model_path, onexc=_handle_onexc)
+            else:
+                shutil.rmtree(model_path, onerror=_handle_onerror)
+            logger.info(f"Deleted model directory: {model_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete model directory {model_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete model: {e}")
 
     # If the model was inside an org folder (organized layout) and that
     # folder is now empty, drop it so the listing stays tidy.
