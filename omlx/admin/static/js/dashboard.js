@@ -3784,7 +3784,7 @@ function dashboard() {
                         // For archived models, extract the parent folder from the path
                         if (model.is_archived && model.path) {
                             const pathParts = model.path.split('/');
-                            const archiveIdx = pathParts.indexOf('Archive');
+                            const archiveIdx = pathParts.indexOf('_archived');
                             if (archiveIdx > -1 && archiveIdx + 1 < pathParts.length) {
                                 model._archive_parent_folder = pathParts[archiveIdx + 1];
                             }

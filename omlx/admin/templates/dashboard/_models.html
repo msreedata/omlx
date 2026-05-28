@@ -167,10 +167,10 @@
                              <button x-show="selectedArchivedModels.length > 0"
                              @click="unarchiveSelectedModels()"
                              :disabled="unarchiving"
-                             class="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all flex items-center gap-1.5
-                             disabled:opacity-50 disabled:cursor-not-allowed">
-                             <i data-lucide="archive-restore" class="w-3.5 h-3.5"></i>
-                             <span x-text="unarchiving ? window.t('models.manager.unarchiving') : window.t('models.manager.unarchive')"></span>
+                             class="px-3 py-1.5 text-xs font-medium text-white bg-neutral-800 hover:bg-neutral-900 rounded-lg transition-all flex items-center gap-1.5
+                              disabled:opacity-50 disabled:cursor-not-allowed">
+                              <i data-lucide="archive-restore" class="w-3.5 h-3.5"></i>
+                              <span x-text="unarchiving ? window.t('models.manager.unarchiving') : window.t('models.manager.unarchive')"></span>
                              </button>
                              </div>
                              <button @click="loadHFModels()"

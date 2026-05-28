@@ -4537,10 +4537,10 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
         for i, part in enumerate(parts):
             if part == 'models' and i + 2 < len(parts) and parts[i + 2] == model_name:
                 parent_folder = parts[i + 1]
-                # Check if this is an archived model (parent is 'Archive')
-                if parent_folder == 'Archive':
+                # Check if this is an archived model (parent is '_archived')
+                if parent_folder == '_archived':
                     is_archived = True
-                    parent_folder = None # Don't show 'Archive' as parent badge
+                    parent_folder = None # Don't show '_archived' as parent badge
                 break
      
         # Build copy_name (includes parent folder prefix for clipboard)
@@ -4783,9 +4783,9 @@ async def archive_hf_models(
                 break
 
         if archive_parent:
-            dest_path = parent_model_dir / "Archive" / archive_parent / model_name
+            dest_path = parent_model_dir / "_archived" / archive_parent / model_name
         else:
-            dest_path = parent_model_dir / "Archive" / model_name
+            dest_path = parent_model_dir / "_archived" / model_name
 
         if dest_path.exists():
             results["failed"].append({"name": model_name, "reason": f"Destination already exists: {dest_path.name}"})
@@ -4833,7 +4833,7 @@ async def unarchive_hf_models(
     request: ArchiveRequest,
     is_admin: bool = Depends(require_admin),
 ):
-    """Unarchive models by moving them from models/Archive/ back to their original locations."""
+    """Unarchive models by moving them from models/_archived/ back to their original locations."""
     global_settings = _get_global_settings()
     engine_pool = _get_engine_pool()
 
@@ -4850,7 +4850,7 @@ async def unarchive_hf_models(
         archive_subfolder = None
 
         for model_dir in model_dirs:
-            archive_dir = model_dir / "Archive"
+            archive_dir = model_dir / "_archived"
             if not archive_dir.exists():
                 continue
             candidate = archive_dir / model_name
