@@ -4523,6 +4523,9 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
             return
         seen_names.add(model_name)
      
+        # Check if model is a symlink
+        is_symlink = os.path.islink(str(model_path))
+
         total_size = sum(
             f.stat().st_size for f in model_path.rglob("*") if f.is_file()
         )
@@ -4554,6 +4557,7 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
             "size": total_size,
             "size_formatted": format_size(total_size),
             "is_archived": is_archived,
+            "is_symlink": is_symlink,
             }
         )
 
@@ -4755,6 +4759,12 @@ async def archive_hf_models(
 
         if model_path is None:
             results["failed"].append({"name": model_name, "reason": "Model not found"})
+            continue
+
+        # Skip symlinked models
+        if os.path.islink(str(model_path)):
+            results["failed"].append({"name": model_name, "reason": "Symlinked models cannot be archived"})
+            logger.warning(f"Skipping symlinked model {model_name} during archive")
             continue
 
         try:
