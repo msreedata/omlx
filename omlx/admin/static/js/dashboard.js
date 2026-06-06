@@ -252,6 +252,10 @@ function dashboard() {
 
         // Archive state
         selectedModels: [],
+        selectedLocalModels: [],
+        selectedArchivedModels: [],
+        localModels: [],
+        archivedModels: [],
         archiving: false,
         unarchiving: false,
         hfArchiveConfirm: null,
@@ -260,14 +264,6 @@ function dashboard() {
         // Computed: archived model count
         get archivedModelCount() {
             return this.hfModels.filter(m => m.is_archived).length;
-        },
-
-        // Computed: selected archived models
-        get selectedArchivedModels() {
-            return this.selectedModels.filter(name => {
-                const model = this.hfModels.find(m => m.name === name);
-                return model && model.is_archived;
-            });
         },
 
         // Recommended models state
@@ -3784,17 +3780,14 @@ function dashboard() {
                 const response = await fetch('/admin/api/hf/models');
                 if (response.ok) {
                     const data = await response.json();
-                    this.hfModels = (data.models || []).map(model => {
-                        // For archived models, extract the parent folder from the path
-                        if (model.is_archived && model.path) {
-                            const pathParts = model.path.split('/');
-                            const archiveIdx = pathParts.indexOf('Archive');
-                            if (archiveIdx > -1 && archiveIdx + 1 < pathParts.length) {
-                                model._archive_parent_folder = pathParts[archiveIdx + 1];
-                            }
-                        }
+                    const allModels = (data.models || []).map(model => {
+                        // Backend already provides correct parent_folder (None for 2-level, folder name for 3-level)
                         return model;
                     });
+                    // Split into local and archived sections
+                    this.localModels = allModels.filter(m => !m.is_archived);
+                    this.archivedModels = allModels.filter(m => m.is_archived);
+                    this.hfModels = allModels; // Keep for backward compatibility
                     this.hfModelsLoaded = true;
                 } else if (response.status === 401) {
                     window.location.href = '/admin';
@@ -3888,11 +3881,38 @@ function dashboard() {
             }
         },
 
+        // Local/Archived selection helpers
+        isLocalSelected(modelName) {
+            return this.selectedLocalModels.includes(modelName);
+        },
+
+        isArchivedSelected(modelName) {
+            return this.selectedArchivedModels.includes(modelName);
+        },
+
+        toggleLocalSelection(modelName) {
+            const index = this.selectedLocalModels.indexOf(modelName);
+            if (index > -1) {
+                this.selectedLocalModels.splice(index, 1);
+            } else {
+                this.selectedLocalModels.push(modelName);
+            }
+        },
+
+        toggleArchivedSelection(modelName) {
+            const index = this.selectedArchivedModels.indexOf(modelName);
+            if (index > -1) {
+                this.selectedArchivedModels.splice(index, 1);
+            } else {
+                this.selectedArchivedModels.push(modelName);
+            }
+        },
+
         async archiveSelectedModels() {
-            if (this.selectedModels.length === 0) return;
+            if (this.selectedLocalModels.length === 0) return;
 
             // Show confirmation dialog
-            const count = this.selectedModels.length;
+            const count = this.selectedLocalModels.length;
             const confirmed = await new Promise((resolve) => {
                 this.hfArchiveConfirm = {
                     action: 'archive',
@@ -3908,7 +3928,7 @@ function dashboard() {
                 const response = await fetch('/admin/api/hf/models/archive', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model_names: this.selectedModels }),
+                    body: JSON.stringify({ model_names: this.selectedLocalModels }),
                 });
 
                 const data = await response.json();
@@ -3925,7 +3945,7 @@ function dashboard() {
                         this.hfError = window.t('js.error.archive_failed').replace('{names}', failedNames);
                     }
 
-                    this.selectedModels = [];
+                    this.selectedLocalModels = [];
                     await this.loadHFModels();
                     await this.loadModels();
                 } else {
@@ -3979,7 +3999,7 @@ function dashboard() {
                         this.hfError = window.t('js.error.unarchive_failed').replace('{names}', failedNames);
                     }
 
-                    this.selectedModels = [];
+                    this.selectedLocalModels = [];
                     await this.loadHFModels();
                     await this.loadModels();
                 } else {

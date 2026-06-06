@@ -4523,6 +4523,9 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
             return
         seen_names.add(model_name)
      
+        # Check if model is a symlink
+        is_symlink = os.path.islink(str(model_path))
+
         total_size = sum(
             f.stat().st_size for f in model_path.rglob("*") if f.is_file()
         )
@@ -4532,14 +4535,22 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
         parent_folder = None
         is_archived = False
         for i, part in enumerate(parts):
-            if part == 'models' and i + 2 < len(parts) and parts[i + 2] == model_name:
-                parent_folder = parts[i + 1]
-                # Check if this is an archived model (parent is 'Archive')
-                if parent_folder == 'Archive':
+            if part == 'models':
+                # Case 1a: 2-level archived path — models/_archived/<model_name>
+                if i + 2 < len(parts) and parts[i + 1] == '_archived' and parts[i + 2] == model_name:
                     is_archived = True
-                    parent_folder = None # Don't show 'Archive' as parent badge
-                break
-     
+                    parent_folder = None
+                    break
+                # Case 1b: 3-level archived path — models/_archived/<parent>/<model_name>
+                if i + 3 < len(parts) and parts[i + 1] == '_archived' and parts[i + 3] == model_name:
+                    is_archived = True
+                    parent_folder = parts[i + 2]
+                    break
+                # Case 2: 2-level path — models/<parent>/<model_name>
+                if i + 2 < len(parts) and parts[i + 2] == model_name:
+                    parent_folder = parts[i + 1]
+                    break
+                    
         # Build copy_name (includes parent folder prefix for clipboard)
         copy_name = model_name
         if parent_folder:
@@ -4554,6 +4565,7 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
             "size": total_size,
             "size_formatted": format_size(total_size),
             "is_archived": is_archived,
+            "is_symlink": is_symlink,
             }
         )
 
@@ -4584,6 +4596,30 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
                         continue
                     if (child / "config.json").exists():
                         _add_model(child, child.name)
+                    else:
+                        # Level 3: nested folder inside organization (e.g. _archived/Jundot/model)
+                        for grandchild in sorted(child.iterdir()):
+                            if not grandchild.is_dir() or grandchild.name.startswith("."):
+                                continue
+                            if (grandchild / "config.json").exists():
+                                _add_model(grandchild, grandchild.name)
+
+    # Clean up empty directories inside _archived folders (bottom-up walk)
+    for model_dir in model_dirs:
+        if not model_dir.exists():
+            continue
+        archived_dir = model_dir / '_archived'
+        if not archived_dir.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(str(archived_dir), topdown=False):
+            dp = Path(dirpath)
+            if dp == archived_dir:
+                continue  # Never remove the _archived folder itself
+            try:
+                if not any(dp.iterdir()):
+                    dp.rmdir()  # Only removes if empty
+            except OSError:
+                pass
 
     return {"models": models}
 
@@ -4664,15 +4700,25 @@ async def delete_hf_model(
             return
         raise exc_info[1].with_traceback(exc_info[2])
 
-    try:
-        if sys.version_info >= (3, 12):
-            shutil.rmtree(model_path, onexc=_handle_onexc)
-        else:
-            shutil.rmtree(model_path, onerror=_handle_onerror)
-        logger.info(f"Deleted model directory: {model_path}")
-    except Exception as e:
-        logger.error(f"Failed to delete model directory {model_path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete model: {e}")
+    # Safety: if model_path is a symlink, only remove the link itself
+    # (not the target directory). Using os.unlink() which does NOT follow symlinks.
+    if os.path.islink(str(model_path)):
+        try:
+            os.unlink(str(model_path))
+            logger.info(f"Deleted symlink: {model_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete symlink {model_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete symlink: {e}")
+    else:
+        try:
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(model_path, onexc=_handle_onexc)
+            else:
+                shutil.rmtree(model_path, onerror=_handle_onerror)
+            logger.info(f"Deleted model directory: {model_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete model directory {model_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete model: {e}")
 
     # If the model was inside an org folder (organized layout) and that
     # folder is now empty, drop it so the listing stays tidy.
@@ -4757,6 +4803,12 @@ async def archive_hf_models(
             results["failed"].append({"name": model_name, "reason": "Model not found"})
             continue
 
+        # Skip symlinked models
+        if os.path.islink(str(model_path)):
+            results["failed"].append({"name": model_name, "reason": "Symlinked models cannot be archived"})
+            logger.warning(f"Skipping symlinked model {model_name} during archive")
+            continue
+
         try:
             if not model_path.resolve().is_relative_to(parent_model_dir.resolve()):
                 results["failed"].append({"name": model_name, "reason": "Invalid model name"})
@@ -4773,9 +4825,9 @@ async def archive_hf_models(
                 break
 
         if archive_parent:
-            dest_path = parent_model_dir / "Archive" / archive_parent / model_name
+            dest_path = parent_model_dir / "_archived" / archive_parent / model_name
         else:
-            dest_path = parent_model_dir / "Archive" / model_name
+            dest_path = parent_model_dir / "_archived" / model_name
 
         if dest_path.exists():
             results["failed"].append({"name": model_name, "reason": f"Destination already exists: {dest_path.name}"})
@@ -4823,7 +4875,7 @@ async def unarchive_hf_models(
     request: ArchiveRequest,
     is_admin: bool = Depends(require_admin),
 ):
-    """Unarchive models by moving them from models/Archive/ back to their original locations."""
+    """Unarchive models by moving them from models/_archived/ back to their original locations."""
     global_settings = _get_global_settings()
     engine_pool = _get_engine_pool()
 
@@ -4840,7 +4892,7 @@ async def unarchive_hf_models(
         archive_subfolder = None
 
         for model_dir in model_dirs:
-            archive_dir = model_dir / "Archive"
+            archive_dir = model_dir / "_archived"
             if not archive_dir.exists():
                 continue
             candidate = archive_dir / model_name
