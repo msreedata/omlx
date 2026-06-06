@@ -4360,11 +4360,13 @@
                     } else if (sortBy === 'likes') {
                         return dir * ((a.likes || 0) - (b.likes || 0));
                     } else if (sortBy === 'size') {
-                        return dir * ((a.size || 0) - (b.size || 0));
-                    } else if (sortBy === 'params') {
-                        return dir * ((a.params || 0) - (b.params || 0));
-                    }
-                    return 0;
+                     return dir * ((a.size || 0) - (b.size || 0));
+                     } else if (sortBy === 'params') {
+                     return dir * ((a.params || 0) - (b.params || 0));
+                     } else if (sortBy === 'path') {
+                     return dir * ((a.parent_folder || '').localeCompare(b.parent_folder || ''));
+                     }
+                     return 0;
                 });
             },
 
