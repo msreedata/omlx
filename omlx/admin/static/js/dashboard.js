@@ -4939,6 +4939,8 @@
                      return dir * ((a.size || 0) - (b.size || 0));
                      } else if (sortBy === 'params') {
                      return dir * ((a.params || 0) - (b.params || 0));
+                     } else if (sortBy === 'lastUpdated') {
+                     return dir * ((a.updated_at || '').localeCompare(b.updated_at || ''));
                      } else if (sortBy === 'path') {
                      return dir * ((a.parent_folder || '').localeCompare(b.parent_folder || ''));
                      }
@@ -4964,8 +4966,8 @@
                     least_params: { col: 'params',    dir: 'asc'  },
                     downloads:    { col: 'downloads', dir: 'desc' },
                     trending:     { col: 'downloads', dir: 'desc' },
-                    created:      { col: 'downloads', dir: 'desc' },
-                    updated:      { col: 'downloads', dir: 'desc' },
+                    created: { col: 'downloads', dir: 'desc' },
+                     updated: { col: 'lastUpdated', dir: 'desc' },
                 };
                 const m = map[this.hfSearchSort];
                 if (m) {
