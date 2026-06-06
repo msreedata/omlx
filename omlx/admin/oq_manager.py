@@ -9,6 +9,7 @@ import asyncio
 import enum
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -134,6 +135,10 @@ class OQManager:
     ):
         self._model_dirs = [Path(d) for d in model_dirs]
         self._output_dir = self._model_dirs[0] if self._model_dirs else Path(".")
+        self._output_local_dir = self._output_dir / "local"
+        # Auto-create local/ directory
+        os.makedirs(self._output_local_dir, exist_ok=True)
+        self._custom_suffix: str = ""
         self._tasks: dict[str, QuantTask] = {}
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._progress_tasks: dict[str, asyncio.Task] = {}
@@ -279,9 +284,10 @@ class OQManager:
 
         model_name = source.name
         output_name = resolve_output_name(
-            model_name, oq_level, dtype, preserve_mtp=preserve_mtp
-        )
-        output_path = self._output_dir / output_name
+         model_name, oq_level, dtype, preserve_mtp=preserve_mtp,
+         custom_suffix=getattr(self, '_custom_suffix', '')
+         )
+        output_path = self._output_local_dir / output_name
 
         if output_path.exists():
             raise ValueError(

@@ -334,20 +334,23 @@ class HFDownloader:
                     continue
                 params = _get_param_count(m.safetensors)
                 results.append(
-                    {
-                        "repo_id": m.id,
-                        "name": m.id.split("/")[-1],
-                        "downloads": downloads,
-                        "likes": m.likes or 0,
-                        "trending_score": m.trending_score or 0,
-                        "size": size,
-                        "size_formatted": _format_model_size(size),
-                        "params": params if params > 0 else None,
-                        "params_formatted": (
-                            _format_param_count(params) if params > 0 else None
-                        ),
-                    }
-                )
+                 {
+                 "repo_id": m.id,
+                 "name": m.id.split("/")[-1],
+                 "downloads": downloads,
+                 "likes": m.likes or 0,
+                 "trending_score": m.trending_score or 0,
+                 "size": size,
+                 "size_formatted": _format_model_size(size),
+                 "params": params if params > 0 else None,
+                 "params_formatted": (
+                 _format_param_count(params) if params > 0 else None
+                 ),
+                 "updated_at": (
+                 m.last_modified.isoformat() if m.last_modified else ""
+                 ),
+                 }
+                 )
             return results
 
         trending, popular = await asyncio.gather(
@@ -405,11 +408,11 @@ class HFDownloader:
             base_sort = _SORT_MAP.get(sort, "trendingScore")
 
         kwargs = {
-            "search": query,
-            "sort": base_sort,
-            "limit": limit,
-            "expand": ["safetensors", "downloads", "likes", "trendingScore"],
-        }
+         "search": query,
+         "sort": base_sort,
+         "limit": limit,
+         "expand": ["safetensors", "downloads", "likes", "trendingScore", "lastModified"],
+         }
         if mlx_only:
             kwargs["filter"] = "mlx"
 
@@ -419,6 +422,12 @@ class HFDownloader:
         )
 
         results = []
+        # Debug: log first model attributes to see what is available
+        first_model = next(iter(models), None)
+        if first_model:
+            logger.debug(f"HF model attributes: id={first_model.id}, last_modified={getattr(first_model, 'last_modified', 'NOT_FOUND')}")
+            logger.debug(f"HF model __dict__ keys: {list(first_model.__dict__.keys())[:20]}")
+        
         for m in models:
             params = None
             params_formatted = None
@@ -442,18 +451,21 @@ class HFDownloader:
                 continue
 
             results.append(
-                {
-                    "repo_id": m.id,
-                    "name": m.id,
-                    "downloads": m.downloads or 0,
-                    "likes": m.likes or 0,
-                    "trending_score": m.trending_score or 0,
-                    "size": size,
-                    "size_formatted": _format_model_size(size) if size > 0 else "",
-                    "params": params,
-                    "params_formatted": params_formatted,
-                }
-            )
+             {
+             "repo_id": m.id,
+             "name": m.id,
+             "downloads": m.downloads or 0,
+             "likes": m.likes or 0,
+             "trending_score": m.trending_score or 0,
+             "size": size,
+             "size_formatted": _format_model_size(size) if size > 0 else "",
+             "params": params,
+             "params_formatted": params_formatted,
+             "updated_at": (
+             m.last_modified.isoformat() if m.last_modified else ""
+             ),
+             }
+             )
 
         # Apply Python-side sorting
         if sort == "most_params":
