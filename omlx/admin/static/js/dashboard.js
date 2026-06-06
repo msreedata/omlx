@@ -438,13 +438,13 @@
             oqDtype: 'bfloat16',
             oqSensitivityModelPath: '',
             oqPreserveMtp: false,
+            oqCustomSuffix: '',
             oqEnhanced: false,
             oqeReuseImatrixCache: true,
             oqeImatrixCachePath: '',
             oqeStrictImatrix: false,
 
-            // oQ Uploader state
-            uploadHfToken: localStorage.getItem('omlx-hf-upload-token') || '',
+            // oQ Uploader state            uploadHfToken: localStorage.getItem('omlx-hf-upload-token') || '',
             uploadHfUsername: '',
             uploadHfOrgs: [],
             uploadHfNamespace: '',
@@ -4534,7 +4534,10 @@
                     const response = await fetch('/admin/api/oq/start', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload),
+                        body: JSON.stringify({
+                            ...payload,
+                            custom_suffix: this.oqCustomSuffix,
+                        }),
                     });
                     const data = await response.json().catch(() => ({}));
                     if (response.ok) {

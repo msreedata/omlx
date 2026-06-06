@@ -982,6 +982,7 @@ def resolve_output_name(
     dtype: str = "bfloat16",
     preserve_mtp: bool = False,
     enhanced: bool = False,
+    custom_suffix: str = "",
 ) -> str:
     """Generate output model name: strip existing quant suffixes, append oQ tag.
 
@@ -1013,7 +1014,11 @@ def resolve_output_name(
         suffix += "-fp16"
     if preserve_mtp:
         suffix += "-mtp"
-    return f"{base}{suffix}"
+        result = f"{base}{suffix}"
+        # Append custom suffix if provided
+        if custom_suffix:
+            result = f"{result}-{custom_suffix}"
+        return result
 
 
 # ── Auto-discovery streaming sanitizer ──────────────────────────────────
