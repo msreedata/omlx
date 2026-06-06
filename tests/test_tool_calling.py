@@ -2220,6 +2220,22 @@ class TestParseToolCallsGemma4Integration:
         assert len(tool_calls) == 1
         assert tool_calls[0].function.name == "run_cmd"
 
+
+    def test_type_error_from_tool_parser_handled_gracefully(self):
+        """TypeError from upstream tool parser does not crash parse_tool_calls."""
+        tok = MagicMock(spec=[])
+        tok.has_tool_calling = True
+        tok.tool_call_start = "<tool_call>"
+        tok.tool_call_end = "</tool_call>"
+        tok.tool_parser = MagicMock(
+            side_effect=TypeError("unexpected type")
+        )
+        text = "<tool_call>some content</tool_call>"
+
+        cleaned, tool_calls = parse_tool_calls(text, tok, None)
+
+        assert tool_calls is None
+
 class TestGemma4SingleQuotedArgs:
     """Single-quoted and structurally hard Gemma 4 args (#1830).
 
