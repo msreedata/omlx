@@ -5156,37 +5156,38 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
         if model_name in seen_names:
             return
         seen_names.add(model_name)
-        
+     
         total_size = sum(
             f.stat().st_size for f in model_path.rglob("*") if f.is_file()
         )
-        
+     
         # Compute parent_folder (immediate parent subfolder name, or None for root models)
         parts = model_path.parts
         parent_folder = None
+        is_archived = False
         for i, part in enumerate(parts):
             if part == 'models' and i + 2 < len(parts) and parts[i + 2] == model_name:
                 parent_folder = parts[i + 1]
+                # Check if this is an archived model (parent is 'Archive')
+                if parent_folder == 'Archive':
+                    is_archived = True
+                    parent_folder = None # Don't show 'Archive' as parent badge
                 break
-        
+     
         # Build copy_name (includes parent folder prefix for clipboard)
         copy_name = model_name
         if parent_folder:
             copy_name = f"{parent_folder}/{model_name}"
+     
         models.append(
             {
-                "name": model_name,
-                "path": str(model_path),
-                "parent_folder": parent_folder,
-                "copy_name": copy_name,
-                "display_name": _model_display_name(
-                    model_name,
-                    model_path,
-                    model_dirs,
-                    source_repo_id=source_repo_id,
-                ),
-                "size": total_size,
-                "size_formatted": format_size(total_size),
+            "name": model_name,
+            "path": str(model_path),
+            "parent_folder": parent_folder,
+            "copy_name": copy_name,
+            "size": total_size,
+            "size_formatted": format_size(total_size),
+            "is_archived": is_archived,
             }
         )
 
@@ -5346,6 +5347,214 @@ async def delete_hf_model(
         logger.info("Model pool refreshed after deletion")
 
     return {"success": True, "message": f"Model '{model_name}' deleted"}
+
+
+class ArchiveRequest(BaseModel):
+    """Request body for archive/unarchive operations."""
+    model_names: list[str]
+
+
+@router.post("/api/hf/models/archive")
+async def archive_hf_models(
+    request: ArchiveRequest,
+    is_admin: bool = Depends(require_admin),
+):
+    """Archive models by moving them to models/Archive/ preserving parent folder structure."""
+    global_settings = _get_global_settings()
+    engine_pool = _get_engine_pool()
+
+    if global_settings is None:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+
+    model_dirs = global_settings.model.get_model_dirs(global_settings.base_path)
+
+    results = {"success": [], "failed": []}
+
+    for model_name in request.model_names:
+        model_path = None
+        parent_model_dir = None
+        for model_dir in model_dirs:
+            if not model_dir.exists():
+                continue
+            candidate = model_dir / model_name
+            if candidate.is_dir() and (candidate / "config.json").exists():
+                model_path = candidate
+                parent_model_dir = model_dir
+                break
+            for subdir in model_dir.iterdir():
+                if not subdir.is_dir() or subdir.name.startswith("."):
+                    continue
+                candidate = subdir / model_name
+                if candidate.is_dir() and (candidate / "config.json").exists():
+                    model_path = candidate
+                    parent_model_dir = model_dir
+                    break
+            if model_path is not None:
+                break
+
+        if model_path is None:
+            results["failed"].append({"name": model_name, "reason": "Model not found"})
+            continue
+
+        try:
+            if not model_path.resolve().is_relative_to(parent_model_dir.resolve()):
+                results["failed"].append({"name": model_name, "reason": "Invalid model name"})
+                continue
+        except ValueError:
+            results["failed"].append({"name": model_name, "reason": "Invalid model name"})
+            continue
+
+        parts = model_path.parts
+        archive_parent = None
+        for i, part in enumerate(parts):
+            if part == 'models' and i + 2 < len(parts) and parts[i + 2] == model_name:
+                archive_parent = parts[i + 1]
+                break
+
+        if archive_parent:
+            dest_path = parent_model_dir / "Archive" / archive_parent / model_name
+        else:
+            dest_path = parent_model_dir / "Archive" / model_name
+
+        if dest_path.exists():
+            results["failed"].append({"name": model_name, "reason": f"Destination already exists: {dest_path.name}"})
+            continue
+
+        if engine_pool is not None:
+            loaded_ids = engine_pool.get_loaded_model_ids()
+            if model_name in loaded_ids:
+                try:
+                    await engine_pool._unload_engine(model_name)
+                    logger.info(f"Unloaded model '{model_name}' before archiving")
+                except Exception as e:
+                    logger.warning(f"Failed to unload model '{model_name}': {e}")
+                    results["failed"].append({"name": model_name, "reason": f"Failed to unload model: {e}"})
+                    continue
+
+        try:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(model_path), str(dest_path))
+            logger.info(f"Archived model: {model_path} -> {dest_path}")
+            results["success"].append({"name": model_name, "dest": str(dest_path)})
+        except Exception as e:
+            logger.error(f"Failed to archive model {model_name}: {e}")
+            results["failed"].append({"name": model_name, "reason": str(e)})
+
+    if results["success"] and engine_pool is not None:
+        settings_manager = _get_settings_manager()
+        pinned_models = []
+        if settings_manager:
+            pinned_models = settings_manager.get_pinned_model_ids()
+        for item in results["success"]:
+            engine_pool._entries.pop(item["name"], None)
+        engine_pool.discover_models(
+            [str(d) for d in model_dirs], pinned_models
+        )
+        if settings_manager:
+            engine_pool.apply_settings_overrides(settings_manager)
+        logger.info("Model pool refreshed after archiving")
+
+    return results
+
+
+@router.post("/api/hf/models/unarchive")
+async def unarchive_hf_models(
+    request: ArchiveRequest,
+    is_admin: bool = Depends(require_admin),
+):
+    """Unarchive models by moving them from models/Archive/ back to their original locations."""
+    global_settings = _get_global_settings()
+    engine_pool = _get_engine_pool()
+
+    if global_settings is None:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+
+    model_dirs = global_settings.model.get_model_dirs(global_settings.base_path)
+
+    results = {"success": [], "failed": []}
+
+    for model_name in request.model_names:
+        model_path = None
+        parent_model_dir = None
+        archive_subfolder = None
+
+        for model_dir in model_dirs:
+            archive_dir = model_dir / "Archive"
+            if not archive_dir.exists():
+                continue
+            candidate = archive_dir / model_name
+            if candidate.is_dir() and (candidate / "config.json").exists():
+                model_path = candidate
+                parent_model_dir = model_dir
+                archive_subfolder = None
+                break
+            for subdir in archive_dir.iterdir():
+                if not subdir.is_dir() or subdir.name.startswith("."):
+                    continue
+                candidate = subdir / model_name
+                if candidate.is_dir() and (candidate / "config.json").exists():
+                    model_path = candidate
+                    parent_model_dir = model_dir
+                    archive_subfolder = subdir.name
+                    break
+            if model_path is not None:
+                break
+
+        if model_path is None:
+            results["failed"].append({"name": model_name, "reason": "Model not found in Archive"})
+            continue
+
+        try:
+            if not model_path.resolve().is_relative_to(parent_model_dir.resolve()):
+                results["failed"].append({"name": model_name, "reason": "Invalid model name"})
+                continue
+        except ValueError:
+            results["failed"].append({"name": model_name, "reason": "Invalid model name"})
+            continue
+
+        if archive_subfolder:
+            dest_path = parent_model_dir / archive_subfolder / model_name
+        else:
+            dest_path = parent_model_dir / model_name
+
+        if dest_path.exists():
+            results["failed"].append({"name": model_name, "reason": f"Destination already exists: {dest_path.name}"})
+            continue
+
+        if engine_pool is not None:
+            loaded_ids = engine_pool.get_loaded_model_ids()
+            if model_name in loaded_ids:
+                try:
+                    await engine_pool._unload_engine(model_name)
+                    logger.info(f"Unloaded model '{model_name}' before unarchiving")
+                except Exception as e:
+                    logger.warning(f"Failed to unload model '{model_name}': {e}")
+                    results["failed"].append({"name": model_name, "reason": f"Failed to unload model: {e}"})
+                    continue
+
+        try:
+            shutil.move(str(model_path), str(dest_path))
+            logger.info(f"Unarchived model: {model_path} -> {dest_path}")
+            results["success"].append({"name": model_name, "dest": str(dest_path)})
+        except Exception as e:
+            logger.error(f"Failed to unarchive model {model_name}: {e}")
+            results["failed"].append({"name": model_name, "reason": str(e)})
+
+    if results["success"] and engine_pool is not None:
+        settings_manager = _get_settings_manager()
+        pinned_models = []
+        if settings_manager:
+            pinned_models = settings_manager.get_pinned_model_ids()
+        for item in results["success"]:
+            engine_pool._entries.pop(item["name"], None)
+        engine_pool.discover_models(
+            [str(d) for d in model_dirs], pinned_models
+        )
+        if settings_manager:
+            engine_pool.apply_settings_overrides(settings_manager)
+        logger.info("Model pool refreshed after unarchiving")
+
+    return results
 
 
 # =============================================================================

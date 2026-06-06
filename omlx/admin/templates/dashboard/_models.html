@@ -58,12 +58,33 @@
                         <!-- Local Models Section -->
                         <div class="bg-white rounded-2xl border border-neutral-200 overflow-hidden">
                             <div class="flex items-center justify-between px-4 sm:px-6 py-4 bg-neutral-100 border-b border-neutral-200">
-                                <div class="flex items-center gap-3">
-                                    <i data-lucide="hard-drive" class="w-4 h-4 text-neutral-500"></i>
-                                    <span class="text-xs font-bold uppercase tracking-wider text-neutral-600">{{ t('models.manager.local_models') }}</span>
-                                    <span class="text-xs text-neutral-400" x-text="window.t('models.manager.models_count').replace('{count}', sortedManagerModels.length)"></span>
-                                </div>
-                                <button @click="loadHFModels()"
+                             <div class="flex items-center gap-3">
+                             <i data-lucide="hard-drive" class="w-4 h-4 text-neutral-500"></i>
+                             <span class="text-xs font-bold uppercase tracking-wider text-neutral-600">{{ t('models.manager.local_models') }}</span>
+                             <span class="text-xs text-neutral-400">
+                             <span x-text="window.t('models.manager.models_count').replace('{count}', hfModels.length)"></span>
+                             <span x-show="archivedModelCount > 0" class="ml-2">|</span>
+                             <span x-show="archivedModelCount > 0" x-text="window.t('models.manager.archived_count').replace('{count}', archivedModelCount)"></span>
+                             </span>
+                             <!-- Archive/Unarchive buttons -->
+                             <button x-show="selectedModels.length > 0"
+                             @click="archiveSelectedModels()"
+                             :disabled="archiving"
+                             class="px-3 py-1.5 text-xs font-medium text-white bg-neutral-800 hover:bg-neutral-900 rounded-lg transition-all flex items-center gap-1.5
+                             disabled:opacity-50 disabled:cursor-not-allowed">
+                             <i data-lucide="archive" class="w-3.5 h-3.5"></i>
+                             <span x-text="window.t('models.manager.archive')"></span>
+                             </button>
+                             <button x-show="selectedArchivedModels.length > 0"
+                             @click="unarchiveSelectedModels()"
+                             :disabled="unarchiving"
+                             class="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all flex items-center gap-1.5
+                             disabled:opacity-50 disabled:cursor-not-allowed">
+                             <i data-lucide="archive-restore" class="w-3.5 h-3.5"></i>
+                             <span x-text="window.t('models.manager.unarchive')"></span>
+                             </button>
+                             </div>
+                             <button @click="loadHFModels()"
                                         class="px-3 py-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-700
                                                hover:bg-neutral-100 rounded-lg transition-all flex items-center gap-1.5">
                                     <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
@@ -106,59 +127,54 @@
                                         {{ t('models.manager.table.model') }}
                                         <span x-show="managerSortBy === 'name'" x-text="managerSortOrder === 'asc' ? '▲' : '▼'" class="text-[10px]"></span>
                                     </div>
-<div class="hidden sm:flex w-24 text-center items-center justify-center gap-1 cursor-pointer hover:text-neutral-700 select-none" @click="toggleManagerSort('type')">
-                                        {{ t('models.manager.table.type') }}
-                                        <span x-show="managerSortBy === 'type'" x-text="managerSortOrder === 'asc' ? '▲' : '▼'" class="text-[10px]"></span>
-                                    </div>
-                                    <div class="hidden sm:flex w-24 text-center items-center justify-center gap-1 cursor-pointer hover:text-neutral-700 select-none" @click="toggleManagerSort('size')">
-                                        {{ t('models.manager.table.size') }}
-                                        <span x-show="managerSortBy === 'size'" x-text="managerSortOrder === 'asc' ? '▲' : '▼'" class="text-[10px]"></span>
-                                    </div>
-                                    <div class="w-20 text-center"></div>
-                                </div>
-
-                                <!-- Table Body -->
-                                <div class="divide-y divide-neutral-100">
-                                    <div x-show="sortedManagerModels.length === 0" class="px-6 py-10 text-center text-sm text-neutral-500"
-                                         x-text="window.t('models.manager.no_match')"></div>
-                                    <template x-for="model in sortedManagerModels" :key="model.name">
-                                        <div class="flex items-center gap-4 px-4 sm:px-6 py-3 hover:bg-neutral-50 transition-colors">
-                                            <!-- Name -->
-                                            <div class="min-w-0 flex-1 flex items-center gap-2">
-                                                <template x-if="managerModelInfo(model.name)">
-                                                    <button
-                                                        @click.stop="updateModelSetting(model.name, 'is_favorite', !managerModelInfo(model.name)?.is_favorite)"
-                                                        @mouseenter="showTip($event.currentTarget, managerModelInfo(model.name)?.is_favorite ? window.t('settings.models.table.favorite_on_tooltip') : window.t('settings.models.table.favorite_off_tooltip'))"
-                                                        @mouseleave="hideTip()"
-                                                        @focus="showTip($event.currentTarget, managerModelInfo(model.name)?.is_favorite ? window.t('settings.models.table.favorite_on_tooltip') : window.t('settings.models.table.favorite_off_tooltip'))"
-                                                        @blur="hideTip()"
-                                                        :class="managerModelInfo(model.name)?.is_favorite ? 'text-amber-400' : 'text-neutral-300 hover:text-neutral-600 hover:bg-neutral-100'"
-                                                        class="hidden sm:flex p-1 rounded-md flex-shrink-0 transition-all">
-                                                        <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" :fill="managerModelInfo(model.name)?.is_favorite ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                                                    </button>
-                                                </template>
-                                                <span class="text-sm font-medium text-neutral-900 truncate"
-                                                      :title="model.display_name || model.name"
-                                                      x-text="model.display_name || model.name"></span>
-                                                <template x-if="model.parent_folder">
-                                                 <span :class="{
-                                                 'bg-red-50 text-red-600 border-red-200': model.parent_folder === 'linked',
-                                                 'bg-green-50 text-green-600 border-green-200': model.parent_folder === 'local',
-                                                 'bg-blue-50 text-blue-600 border-blue-200': model.parent_folder !== 'linked' && model.parent_folder !== 'local'
-                                                 }" class="px-1.5 py-0.5 text-[10px] font-medium rounded flex-shrink-0 border"
-                                                 x-text="model.parent_folder"></span>
-                                                 </template>
-                                                <template x-if="managerModelInfo(model.name)?.settings?.model_alias">
-                                                    <span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-neutral-100 text-neutral-500 border border-neutral-200 truncate max-w-[120px]"
-                                                          x-text="managerModelInfo(model.name)?.settings?.model_alias"></span>
-                                                </template>
-                                                <button x-data="{ copied: false }"
-                                                        @click.stop="copyToClipboard(model.copy_name || managerModelInfo(model.name)?.settings?.model_alias || model.name); copied = true; setTimeout(() => copied = false, 2000)"
-                                                        class="p-1 rounded-md transition-all flex-shrink-0"
-                                                        :class="copied ? 'text-green-500' : 'text-neutral-300 hover:text-neutral-600 hover:bg-neutral-100'"
-                                                        :title="window.t('models.manager.copy_model_name_tooltip')">
-                                                    <svg x-show="!copied" class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                                                    <svg x-show="copied" x-cloak class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                                </template>
+                                <template x-for="model in hfModels" :key="model.name">
+                                 <div class="px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 hover:bg-neutral-50 transition-colors"
+                                 :class="{'bg-blue-50': isModelSelected(model.name)}">
+                                 <!-- Checkbox -->
+                                 <div class="flex items-center gap-2">
+                                 <input type="checkbox"
+                                 :checked="isModelSelected(model.name)"
+                                 @change="toggleModelSelection(model.name)"
+                                 class="w-4 h-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 cursor-pointer">
+                                 </div>
+                                 <div class="min-w-0 flex-1 flex items-center gap-2">
+                                 <span class="text-sm font-medium text-neutral-900 truncate" x-text="model.name"></span>
+                                 <!-- Archive badge -->
+                                 <template x-if="model.is_archived">
+                                 <span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-neutral-100 text-neutral-500 border border-neutral-200 flex items-center gap-1">
+                                 <i data-lucide="archive" class="w-3 h-3"></i>
+                                 <span x-text="model._archive_parent_folder || ''"></span>
+                                 </span>
+                                 </template>
+                                 <template x-if="model.parent_folder && !model.is_archived">
+                                          <span :class="{
+                                          'bg-red-50 text-red-600 border-red-200': model.parent_folder === 'linked',
+                                          'bg-green-50 text-green-600 border-green-200': model.parent_folder === 'local',
+                                          'bg-blue-50 text-blue-600 border-blue-200': model.parent_folder !== 'linked' && model.parent_folder !== 'local'
+                                          }" class="px-1.5 py-0.5 text-[10px] font-medium rounded flex-shrink-0 border"
+                                          x-text="model.parent_folder"></span>
+                                          </template>
+                                         <template x-if="models.find(m => m.id === model.name)?.settings?.model_alias">
+                                         <span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-neutral-100 text-neutral-500 border border-neutral-200 truncate max-w-[120px]"
+                                         x-text="models.find(m => m.id === model.name)?.settings?.model_alias"></span>
+                                         </template>
+                                         <span class="text-xs text-neutral-400 flex-shrink-0" x-text="'(' + model.size_formatted + ')'"></span>
+                                         <button x-data="{ copied: false }"
+                                         @click.stop="copyToClipboard((model.copy_name || model.name)); copied = true; setTimeout(() => copied = false, 2000)"
+                                                    class="p-1 rounded-md transition-all flex-shrink-0"
+                                                    :class="copied ? 'text-green-500' : 'text-neutral-300 hover:text-neutral-600 hover:bg-neutral-100'"
+                                                    :title="window.t('models.manager.copy_model_name_tooltip')">
+                                                <svg x-show="!copied" class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                                                <svg x-show="copied" x-cloak class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                                            </button>
+                                        </div>
+                                        <div class="flex items-center gap-2 ml-4 shrink-0">
+                                            <template x-if="hfDeleteConfirm !== model.name">
+                                                <button @click="hfDeleteConfirm = model.name"
+                                                        class="p-1.5 text-neutral-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                        :title="window.t('models.manager.delete_tooltip')">
+                                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
                                                 </button>
                                             </div>
                                             <!-- Type -->
@@ -203,9 +219,63 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- ==================== DOWNLOADER TAB ==================== -->
+                         </div>
+                        
+                         <!-- Archive Confirmation Modal -->
+                         <div x-show="hfArchiveConfirm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="display: none;">
+                         <div class="fixed inset-0 bg-black/50" @click="hfArchiveConfirm = null"></div>
+                         <div class="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6 animate-fade-in-up">
+                         <div class="flex items-center gap-3 mb-4">
+                         <div class="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center">
+                         <i data-lucide="archive" class="w-5 h-5 text-neutral-600"></i>
+                         </div>
+                         <h3 class="text-lg font-semibold text-neutral-900">{{ t('models.manager.archive_confirm_title') }}</h3>
+                         </div>
+                         <p class="text-sm text-neutral-600 mb-6">
+                         <span x-text="window.t('models.manager.archive_confirm_message').replace('{count}', hfArchiveConfirm?.count || 0)"></span>
+                         </p>
+                         <div class="flex items-center justify-end gap-3">
+                         <button @click="hfArchiveConfirm = null"
+                         class="px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 rounded-lg transition-all">
+                         {{ t('models.manager.cancel') }}
+                         </button>
+                         <button @click="hfArchiveConfirm.resolve(true); hfArchiveConfirm = null"
+                         :disabled="archiving"
+                         class="px-4 py-2 text-sm font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-lg transition-all disabled:opacity-50">
+                         <span x-text="archiving ? window.t('models.manager.archiving') : window.t('models.manager.archive')"></span>
+                         </button>
+                         </div>
+                         </div>
+                         </div>
+                        
+                         <!-- Unarchive Confirmation Modal -->
+                         <div x-show="hfUnarchiveConfirm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="display: none;">
+                         <div class="fixed inset-0 bg-black/50" @click="hfUnarchiveConfirm = null"></div>
+                         <div class="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6 animate-fade-in-up">
+                         <div class="flex items-center gap-3 mb-4">
+                         <div class="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                         <i data-lucide="archive-restore" class="w-5 h-5 text-blue-600"></i>
+                         </div>
+                         <h3 class="text-lg font-semibold text-neutral-900">{{ t('models.manager.unarchive_confirm_title') }}</h3>
+                         </div>
+                         <p class="text-sm text-neutral-600 mb-6">
+                         <span x-text="window.t('models.manager.unarchive_confirm_message').replace('{count}', hfUnarchiveConfirm?.count || 0)"></span>
+                         </p>
+                         <div class="flex items-center justify-end gap-3">
+                         <button @click="hfUnarchiveConfirm = null"
+                         class="px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 rounded-lg transition-all">
+                         {{ t('models.manager.cancel') }}
+                         </button>
+                         <button @click="hfUnarchiveConfirm.resolve(true); hfUnarchiveConfirm = null"
+                         :disabled="unarchiving"
+                         class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all disabled:opacity-50">
+                         <span x-text="unarchiving ? window.t('models.manager.unarchiving') : window.t('models.manager.unarchive')"></span>
+                         </button>
+                         </div>
+                         </div>
+                         </div>
+                        
+                         <!-- ==================== DOWNLOADER TAB ==================== -->
                     <div x-show="modelsTab === 'downloader'" x-cloak>
                         <!-- Header -->
                         <div class="mb-8">
