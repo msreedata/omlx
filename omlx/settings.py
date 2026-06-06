@@ -135,6 +135,7 @@ class ModelSettings:
     model_dirs: list[str] = field(default_factory=list)  # [] means ~/.omlx/models
     model_dir: str | None = None  # Deprecated: kept for backward compatibility
     model_fallback: bool = False  # Use default model when requested model not found
+    max_model_memory: str | None = None  # e.g. "4GB", "auto", "disabled"
 
     def get_model_dirs(self, base_path: Path) -> list[Path]:
         """
@@ -164,12 +165,34 @@ class ModelSettings:
         """
         return self.get_model_dirs(base_path)[0]
 
+    def get_max_model_memory_bytes(self) -> int | None:
+        """
+        Parse max_model_memory string to bytes.
+
+        Returns:
+            None for 'disabled' or empty, calculated bytes for 'auto' or size string.
+        """
+        if self.max_model_memory is None or self.max_model_memory.strip().lower() == "disabled":
+            return None
+        if self.max_model_memory.strip().lower() == "auto":
+            # Auto: estimate based on available system memory
+            try:
+                import psutil
+                total_mem = psutil.virtual_memory().total
+                return int(total_mem * 0.75)  # Use 75% of total RAM
+            except ImportError:
+                return None
+        # Parse size string (e.g. "4GB", "500MB")
+        from omlx.config import parse_size
+        return parse_size(self.max_model_memory)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "model_dirs": self.model_dirs,
             "model_dir": self.model_dirs[0] if self.model_dirs else self.model_dir,
             "model_fallback": self.model_fallback,
+            "max_model_memory": self.max_model_memory,
         }
 
     @classmethod
@@ -183,6 +206,7 @@ class ModelSettings:
             model_dirs=model_dirs,
             model_dir=data.get("model_dir"),
             model_fallback=data.get("model_fallback", False),
+            max_model_memory=data.get("max_model_memory"),
         )
 
 
@@ -318,6 +342,8 @@ class MemorySettings:
     # aborted via the same cleanup path the hard-limit RuntimeError uses.
     prefill_safe_zone_ratio: float = 0.80
     prefill_min_chunk_tokens: int = 32
+    # Process-level memory cap: "auto", "disabled", or a size string (e.g. "80%", "12GB")
+    max_process_memory: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -329,6 +355,7 @@ class MemorySettings:
             "hard_threshold": self.hard_threshold,
             "prefill_safe_zone_ratio": self.prefill_safe_zone_ratio,
             "prefill_min_chunk_tokens": self.prefill_min_chunk_tokens,
+            "max_process_memory": self.max_process_memory,
         }
 
     @classmethod
@@ -347,6 +374,7 @@ class MemorySettings:
             hard_threshold=float(data.get("hard_threshold", 0.95)),
             prefill_safe_zone_ratio=float(data.get("prefill_safe_zone_ratio", 0.80)),
             prefill_min_chunk_tokens=int(data.get("prefill_min_chunk_tokens", 32)),
+            max_process_memory=data.get("max_process_memory", None),
         )
 
 

@@ -210,8 +210,10 @@ class GlobalSettingsRequest(BaseModel):
     model_fallback: bool | None = None
 
     # Memory enforcement
-    max_process_memory: str | None = None  # "auto", "disabled", or "XX%"
+    max_process_memory: str | None = None # "auto", "disabled", or "XX%"
     memory_prefill_memory_guard: bool | None = None
+    memory_guard_tier: str | None = None # "safe" / "balanced" / "aggressive" / "custom"
+    memory_guard_custom_ceiling_gb: float | None = None # only used when tier == "custom"
 
     # Scheduler settings
     max_concurrent_requests: int | None = None
@@ -1116,12 +1118,74 @@ def get_system_memory_info() -> dict:
             total_bytes = 0
 
     auto_limit_bytes = int(total_bytes * 0.8)
+    
+    # Live values so the admin UI can preview the actual hard ceiling for any
+    # tier (static_ceiling + dynamic_ceiling depend on these). Read on each
+    # call — never cached.
+    try:
+        import psutil
+
+        available_bytes = int(psutil.virtual_memory().available)
+    except Exception:
+        available_bytes = 0
+    try:
+        from ..utils.proc_memory import get_phys_footprint
+
+        omlx_phys_footprint_bytes = int(get_phys_footprint())
+    except Exception:
+        omlx_phys_footprint_bytes = 0
+
+    # Effective Metal cap = sysctl iogpu.wired_limit_mb when set, else
+    # Apple's max_recommended_working_set_size (~75% of RAM). The admin UI
+    # compares this against the value oMLX wanted at start (static
+    # ceiling) and warns when the cap is below the request.
+    try:
+        from ..process_memory_enforcer import get_effective_metal_cap_bytes
+
+        iogpu_wired_limit_bytes = int(get_effective_metal_cap_bytes())
+    except Exception:
+        iogpu_wired_limit_bytes = 0
+    omlx_wired_limit_request_bytes = 0
+    try:
+        from ..server import _server_state
+
+        enforcer = getattr(_server_state, "process_memory_enforcer", None)
+        if enforcer is not None:
+            omlx_wired_limit_request_bytes = int(
+                getattr(enforcer, "_metal_wired_limit_request", 0) or 0
+            )
+    except Exception:
+        pass
+
+    # Live macOS vm_stat layers so the admin dashboard can preview the
+    # tier-aware ceiling (free + inactive + active * ratio). Zero on
+    # non-macOS / call failure — JS falls back to available_bytes.
+    free_memory_bytes = 0
+    inactive_memory_bytes = 0
+    active_memory_bytes = 0
+    try:
+        from ..process_memory_enforcer import get_macos_vm_stats
+
+        vm = get_macos_vm_stats()
+        if vm is not None:
+            free_memory_bytes = int(vm.get("free", 0))
+            inactive_memory_bytes = int(vm.get("inactive", 0))
+            active_memory_bytes = int(vm.get("active", 0))
+    except Exception:
+        pass
 
     return {
         "total_bytes": total_bytes,
         "total_formatted": format_size(total_bytes),
         "auto_limit_bytes": auto_limit_bytes,
         "auto_limit_formatted": format_size(auto_limit_bytes),
+        "available_bytes": available_bytes,
+        "omlx_phys_footprint_bytes": omlx_phys_footprint_bytes,
+        "iogpu_wired_limit_bytes": iogpu_wired_limit_bytes,
+        "omlx_wired_limit_request_bytes": omlx_wired_limit_request_bytes,
+        "free_memory_bytes": free_memory_bytes,
+        "inactive_memory_bytes": inactive_memory_bytes,
+        "active_memory_bytes": active_memory_bytes,
     }
 
 
@@ -2699,9 +2763,11 @@ async def get_global_settings(is_admin: bool = Depends(require_admin)):
             "model_fallback": global_settings.model.model_fallback,
         },
         "memory": {
-            "max_process_memory": global_settings.memory.max_process_memory,
-            "prefill_memory_guard": global_settings.memory.prefill_memory_guard,
-        },
+         "max_process_memory": global_settings.memory.max_process_memory,
+         "prefill_memory_guard": global_settings.memory.prefill_memory_guard,
+         "memory_guard_tier": global_settings.memory.memory_guard_tier,
+         "memory_guard_custom_ceiling_gb": global_settings.memory.memory_guard_custom_ceiling_gb,
+         },
         "scheduler": {
             "max_concurrent_requests": global_settings.scheduler.max_concurrent_requests,
             "chunked_prefill": global_settings.scheduler.chunked_prefill,
@@ -2764,12 +2830,21 @@ async def get_global_settings(is_admin: bool = Depends(require_admin)):
             "openclaw_tools_profile": global_settings.integrations.openclaw_tools_profile,
         },
         "system": {
-            "total_memory_bytes": memory_info["total_bytes"],
-            "total_memory": memory_info["total_formatted"],
-            "auto_model_memory": memory_info["auto_limit_formatted"],
-            "ssd_total_bytes": disk_info["total_bytes"],
-            "ssd_total": disk_info["total_formatted"],
-        },
+         "total_memory_bytes": memory_info["total_bytes"],
+         "total_memory": memory_info["total_formatted"],
+         "auto_model_memory": memory_info["auto_limit_formatted"],
+         "available_memory_bytes": memory_info["available_bytes"],
+         "omlx_phys_footprint_bytes": memory_info["omlx_phys_footprint_bytes"],
+         "free_memory_bytes": memory_info["free_memory_bytes"],
+         "inactive_memory_bytes": memory_info["inactive_memory_bytes"],
+         "active_memory_bytes": memory_info["active_memory_bytes"],
+         "iogpu_wired_limit_bytes": memory_info["iogpu_wired_limit_bytes"],
+         "omlx_wired_limit_request_bytes": memory_info[
+         "omlx_wired_limit_request_bytes"
+         ],
+         "ssd_total_bytes": disk_info["total_bytes"],
+         "ssd_total": disk_info["total_formatted"],
+         },
         "ui": {
             "language": global_settings.ui.language,
         },
@@ -2932,6 +3007,30 @@ async def update_global_settings(
             f"Prefill memory guard "
             f"{'enabled' if request.memory_prefill_memory_guard else 'disabled'}"
         )
+        
+    # Apply memory guard tier + custom ceiling change (Live)
+    if (
+        request.memory_guard_tier is not None
+        or request.memory_guard_custom_ceiling_gb is not None
+    ):
+        if request.memory_guard_tier is not None:
+            global_settings.memory.memory_guard_tier = request.memory_guard_tier
+        if request.memory_guard_custom_ceiling_gb is not None:
+            global_settings.memory.memory_guard_custom_ceiling_gb = float(
+                request.memory_guard_custom_ceiling_gb
+            )
+        from ..server import _server_state
+
+        if _server_state.process_memory_enforcer is not None:
+            enforcer = _server_state.process_memory_enforcer
+            if request.memory_guard_tier is not None:
+                enforcer.memory_guard_tier = request.memory_guard_tier
+            if request.memory_guard_custom_ceiling_gb is not None:
+                enforcer.memory_guard_custom_ceiling_bytes = max(
+                    0, int(float(request.memory_guard_custom_ceiling_gb) * 1024**3)
+                )
+        runtime_applied.append("memory_guard_tier")
+        logger.info(f"Memory guard tier updated to {global_settings.memory.memory_guard_tier}")
 
     # Apply scheduler settings (restart required)
     if request.max_concurrent_requests is not None:

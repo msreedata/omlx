@@ -34,8 +34,8 @@ function dashboard() {
         globalSettings: {
             base_path: '',
             server: { host: '127.0.0.1', port: 8000, log_level: 'info', sse_keepalive_mode: 'chunk' },
-            model: { model_dirs: [''], max_model_memory: '' },
-            memory: { max_process_memory: 'auto', prefill_memory_guard: true },
+            model: { model_dirs: [''], max_model_memory: '', model_fallback: false },
+            memory: { max_process_memory: 'auto', prefill_memory_guard: true, memory_guard_tier: 'balanced', memory_guard_custom_ceiling_gb: 0 },
             scheduler: { max_concurrent_requests: 8 },
             cache: { enabled: true, ssd_cache_dir: '', ssd_cache_max_size: 'auto', hot_cache_max_size: '0', initial_cache_blocks: 256, hot_cache_only: false },
             sampling: { max_context_window: 32768, max_tokens: 32768, temperature: 1.0, top_p: 0.95, top_k: 0, repetition_penalty: 1.0 },
@@ -820,6 +820,8 @@ function dashboard() {
                         model_fallback: this.globalSettings.model.model_fallback,
                         max_process_memory: this.globalSettings.memory.max_process_memory,
                         memory_prefill_memory_guard: this.globalSettings.memory.prefill_memory_guard,
+                         memory_guard_tier: this.globalSettings.memory.memory_guard_tier,
+                         memory_guard_custom_ceiling_gb: this.globalSettings.memory.memory_guard_custom_ceiling_gb,
                         max_concurrent_requests: this.globalSettings.scheduler.max_concurrent_requests,
                         chunked_prefill: this.globalSettings.scheduler.chunked_prefill,
                         cache_enabled: this.globalSettings.cache.enabled,
@@ -2428,10 +2430,161 @@ function dashboard() {
         },
 
         get activeModelsSoftMarkerStyle() {
-            return `left: ${this.activeModelsSoftPercent}%; width: 1px; background-color: rgba(64, 64, 64, 0.6);`;
-        },
-
-        activeModelsPressureLabel() {
+         return `left: ${this.activeModelsSoftPercent}%; width: 1px; background-color: rgba(64, 64, 64, 0.6);`;
+         },
+        
+         // the kernel cap is fine.
+         // True when the kernel iogpu.wired_limit_mb (or Apple default
+         // working set) caps oMLX below its desired static ceiling.
+         get memoryGuardShowWiredLimitWarning() {
+         const sys = this.globalSettings.system || {};
+         const kernelBytes = sys.iogpu_wired_limit_bytes || 0;
+         const requestedBytes = sys.omlx_wired_limit_request_bytes || 0;
+         if (kernelBytes <= 0 || requestedBytes <= 0) return false;
+         return kernelBytes < requestedBytes;
+         },
+        
+         // Red bold warning text (no copy button). The button is a
+         // separate sibling in the template so Alpine can wire @click.
+         get memoryGuardWiredLimitWarningHTML() {
+         if (!this.memoryGuardShowWiredLimitWarning) return '';
+         const sys = this.globalSettings.system;
+         const kernelGB = (sys.iogpu_wired_limit_bytes / (1024 ** 3)).toFixed(1);
+         const template = window.t('settings.resource.guard_tier.wired_limit_warning');
+         return template.replaceAll(
+         '{kernel}',
+         `<strong>${kernelGB} GB</strong>`,
+         );
+         },
+        
+         // The sysctl command rendered in the dark bold <code> chip.
+         get memoryGuardWiredLimitCommand() {
+         if (!this.memoryGuardShowWiredLimitWarning) return '';
+         const requested = this.globalSettings.system.omlx_wired_limit_request_bytes;
+         const requestedMB = Math.ceil(requested / (1024 ** 2));
+         return `sudo sysctl iogpu.wired_limit_mb=${requestedMB}`;
+         },
+        
+         // 2-second "Copied!" affordance after the clipboard button is
+         // pressed. Reset by the same setTimeout so it's harmless if
+         // the user clicks rapidly.
+         wiredLimitCopied: false,
+        
+         copyWiredLimitCommand() {
+         const text = this.memoryGuardWiredLimitCommand;
+         if (!text) return;
+         const onSuccess = () => {
+         this.wiredLimitCopied = true;
+         setTimeout(() => { this.wiredLimitCopied = false; }, 2000);
+         };
+         if (navigator.clipboard && navigator.clipboard.writeText) {
+         navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+         onSuccess();
+         });
+         } else {
+         onSuccess();
+         }
+         },
+        
+         // Description text shown next to the Memory guard tier dropdown.
+         // safe / balanced / aggressive get a "free + inactive + N% of
+         // active (via macOS reclaim_method)" sentence. custom shows the
+         // user-supplied ceiling.
+         get memoryGuardTierDescription() {
+         const tier = this.globalSettings.memory?.memory_guard_tier || 'balanced';
+         const tierLabel = window.t('settings.resource.guard_tier.' + tier);
+         if (tier === 'custom') {
+         const gb = Number(
+         this.globalSettings.memory?.memory_guard_custom_ceiling_gb || 0
+         ).toFixed(1);
+         return window
+         .t('settings.resource.guard_tier.description_custom')
+         .replace('{custom_gb}', gb);
+         }
+         const pct = { safe: 20, balanced: 50, aggressive: 80 }[tier] ?? 50;
+         const method = window.t(
+         'settings.resource.guard_tier.reclaim_method.' + tier
+         );
+         return window
+         .t('settings.resource.guard_tier.description_template')
+         .replace('{tier}', tierLabel)
+         .replace('{active_pct}', pct)
+         .replace('{reclaim_method}', method);
+         },
+        
+         // Breakdown line. For ratio tiers: `Free X, inactive Y, active Z
+         // × N% = R → ceiling C`. For custom: `Custom ceiling X GB →
+         // effective ceiling C` (after clamp by static / metal cap).
+         get memoryGuardBreakdownHTML() {
+         const sys = this.globalSettings.system || {};
+         const GB = 1024 ** 3;
+         const tier = this.globalSettings.memory?.memory_guard_tier || 'balanced';
+         const fmt = (gb) => Number(gb).toFixed(1);
+         const bold = (gb) => `<strong>${fmt(gb)} GB</strong>`;
+        
+         // Static / metal cap for the final clamp shown to the user.
+         const totalGB = (sys.total_memory_bytes || 0) / GB;
+         const staticReserveGB =
+         tier === 'custom'
+         ? 2
+         : totalGB < 16
+         ? 4
+         : { safe: 8, balanced: 6, aggressive: 4 }[tier] ?? 6;
+         const staticCeiling = Math.max(0, totalGB - staticReserveGB);
+         const metalCapGB = (sys.iogpu_wired_limit_bytes || 0) / GB;
+        
+         // Helper: is the kernel iogpu.wired_limit_mb the smallest
+         // of the three candidates? When yes we swap "→ ceiling" for
+         // "/ effective ceiling X (kernel limit)" so the user knows
+         // why the value isn't what their tier math suggested.
+         const kernelBinds = (candidates, finalCeiling) =>
+         metalCapGB > 0 &&
+         Math.abs(metalCapGB - finalCeiling) < 1e-6 &&
+         candidates.every((c) => c >= metalCapGB - 1e-6);
+        
+         if (tier === 'custom') {
+         const custom = Number(
+         this.globalSettings.memory?.memory_guard_custom_ceiling_gb || 0
+         );
+         const candidates = [custom, staticCeiling];
+         if (metalCapGB > 0) candidates.push(metalCapGB);
+         const ceiling = Math.max(0, Math.min(...candidates));
+         const tmpl = kernelBinds([custom, staticCeiling], ceiling)
+         ? 'settings.resource.guard_tier.breakdown_custom_kernel_limit'
+         : 'settings.resource.guard_tier.breakdown_custom';
+         return window
+         .t(tmpl)
+         .replace('{custom}', bold(custom))
+         .replace('{ceiling}', bold(ceiling))
+         .replace('{kernel}', bold(metalCapGB));
+         }
+        
+         // Ratio tiers: use vm_stat layers when available, otherwise
+         // fall back to psutil.available.
+         const freeGB = (sys.free_memory_bytes || 0) / GB;
+         const inactiveGB = (sys.inactive_memory_bytes || 0) / GB;
+         const activeGB = (sys.active_memory_bytes || 0) / GB;
+         const pct = { safe: 0.20, balanced: 0.50, aggressive: 0.80 }[tier] ?? 0.50;
+         const activeRatioGB = activeGB * pct;
+         const ratioCeiling = freeGB + inactiveGB + activeRatioGB;
+         const candidates = [ratioCeiling, staticCeiling];
+         if (metalCapGB > 0) candidates.push(metalCapGB);
+         const ceiling = Math.max(0, Math.min(...candidates));
+         const tmpl = kernelBinds(candidates, ceiling)
+         ? 'settings.resource.guard_tier.breakdown_ratio_kernel_limit'
+         : 'settings.resource.guard_tier.breakdown_ratio';
+         return window
+         .t(tmpl)
+         .replace('{free}', bold(freeGB))
+         .replace('{inactive}', bold(inactiveGB))
+         .replace('{active}', bold(activeGB))
+         .replace('{active_pct}', Math.round(pct * 100))
+         .replace('{ratio}', bold(ratioCeiling))
+         .replace('{ceiling}', bold(ceiling))
+         .replace('{kernel}', bold(metalCapGB));
+         },
+        
+         activeModelsPressureLabel() {
             const mp = this.stats.active_models?.memory_pressure;
             if (!mp || !mp.enabled || !mp.hard_bytes) {
                 return window.t('status.active_models.enforcer_disabled');
