@@ -140,12 +140,16 @@
                                                 <span class="text-sm font-medium text-neutral-900 truncate"
                                                       :title="model.display_name || model.name"
                                                       x-text="model.display_name || model.name"></span>
+                                                <template x-if="model.parent_folder">
+                                                    <span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-50 text-blue-600 border border-blue-200 flex-shrink-0"
+                                                          x-text="model.parent_folder"></span>
+                                                </template>
                                                 <template x-if="managerModelInfo(model.name)?.settings?.model_alias">
                                                     <span class="px-1.5 py-0.5 text-[10px] font-medium rounded bg-neutral-100 text-neutral-500 border border-neutral-200 truncate max-w-[120px]"
                                                           x-text="managerModelInfo(model.name)?.settings?.model_alias"></span>
                                                 </template>
                                                 <button x-data="{ copied: false }"
-                                                        @click.stop="copyToClipboard(managerModelInfo(model.name)?.settings?.model_alias || model.name); copied = true; setTimeout(() => copied = false, 2000)"
+                                                        @click.stop="copyToClipboard(model.copy_name || managerModelInfo(model.name)?.settings?.model_alias || model.name); copied = true; setTimeout(() => copied = false, 2000)"
                                                         class="p-1 rounded-md transition-all flex-shrink-0"
                                                         :class="copied ? 'text-green-500' : 'text-neutral-300 hover:text-neutral-600 hover:bg-neutral-100'"
                                                         :title="window.t('models.manager.copy_model_name_tooltip')">
