@@ -13,9 +13,12 @@
     function dashboard() {
         return {
             // Theme
-            theme: localStorage.getItem('omlx-chat-theme') || 'auto',
-            activeTheme: 'light', // Will be updated by applyTheme
-            systemThemeListener: null,
+             theme: localStorage.getItem('omlx-chat-theme') || 'auto',
+             activeTheme: 'light', // Will be updated by applyTheme
+             systemThemeListener: null,
+            
+             // Progress bar theme: 'colored' (default) or 'classic' (neutral gray)
+             progressBarTheme: localStorage.getItem('omlx-progress-bar-theme') || 'colored',
 
             // Mobile menu
             mobileMenuOpen: false,
@@ -2389,13 +2392,14 @@
             },
 
             get activeModelsPressureBarColor() {
-                const pct = this.activeModelsPressurePercent;
-                if (pct >= 90) return '#ef4444';
-                if (pct >= 80) return '#f97316';
-                if (pct >= 70) return '#f59e0b';
-                if (pct >= 60) return '#facc15';
-                return '#22c55e';
-            },
+             if (this.progressBarTheme === 'classic') return '#a3a3a3';
+             const pct = this.activeModelsPressurePercent;
+             if (pct >= 90) return '#ef4444';
+             if (pct >= 80) return '#f97316';
+             if (pct >= 70) return '#f59e0b';
+             if (pct >= 60) return '#facc15';
+             return '#22c55e';
+             },
 
             get activeModelsPressureBarStyle() {
                 return `width: ${this.activeModelsPressurePercent}%; height: 100%; display: block; background-color: ${this.activeModelsPressureBarColor};`;
