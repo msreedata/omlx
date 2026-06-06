@@ -3039,7 +3039,7 @@
                 let lines = [];
 
                 lines.push('oMLX - LLM inference, optimized for your Mac');
-                lines.push('https://github.com/jundot/omlx');
+                lines.push('https://github.com/msreedata/omlx');
                 if (this.benchRunExternal) {
                     lines.push(`Benchmark Model: ${this.benchRunExternal.model} @ ${this.benchRunExternal.base_url}`);
                     lines.push('Engine: External OpenAI-compatible endpoint');
