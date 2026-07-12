@@ -3635,8 +3635,30 @@ function dashboard() {
                 this.sortOrder = 'asc';
             }
         },
-
-        // Theme select
+        
+         toggleManagerSort(by) {
+         if (this.managerSortBy === by) {
+         this.managerSortOrder = this.managerSortOrder === 'asc' ? 'desc' : 'asc';
+         } else {
+         this.managerSortBy = by;
+         this.managerSortOrder = 'asc';
+         }
+         this.isManagerSortDefault = (this.managerSortBy === 'name' && this.managerSortOrder === 'asc');
+         },
+        
+         resetManagerSort() {
+         this.managerSortBy = 'name';
+         this.managerSortOrder = 'asc';
+         this.isManagerSortDefault = true;
+         },
+        
+         managerModelInfo(name) {
+         // Return model info for display - check if model exists in hfModels
+         const model = this.hfModels.find(m => m.name === name);
+         return model || null;
+         },
+        
+         // Theme select
         setTheme(theme) {
             this.theme = theme;
             localStorage.setItem('omlx-chat-theme', this.theme);

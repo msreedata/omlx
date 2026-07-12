@@ -127,7 +127,7 @@
                                         {{ t('models.manager.table.model') }}
                                         <span x-show="managerSortBy === 'name'" x-text="managerSortOrder === 'asc' ? '▲' : '▼'" class="text-[10px]"></span>
                                     </div>
-                                </template>
+                                </div>
                                 <template x-for="model in hfModels" :key="model.name">
                                  <div class="px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 hover:bg-neutral-50 transition-colors"
                                  :class="{'bg-blue-50': isModelSelected(model.name)}">
