@@ -217,7 +217,6 @@ class GlobalSettingsRequest(BaseModel):
     # Model settings
     model_dirs: list[str] | None = None
     model_dir: str | None = None  # Deprecated: kept for backward compatibility
-    max_model_memory: str | None = None
     model_fallback: bool | None = None
     hide_helper_models: bool | None = None
 
@@ -803,51 +802,6 @@ async def _reload_models() -> tuple[bool, str]:
     pool = _server_state.engine_pool
     if pool is not None:
         await pool.preload_pinned_models()
-
-    return True, msg
-
-
-async def _apply_max_model_memory_runtime(
-    max_memory_bytes: int | None,
-) -> tuple[bool, str]:
-    """
-    Apply max model memory change at runtime.
-
-    If current usage exceeds new limit, unloads LRU models until within limit.
-    If None, disables model memory limiting.
-
-    Returns:
-        Tuple of (success, message)
-    """
-    from ..model_discovery import format_size
-    from ..server import _server_state
-
-    if _server_state.engine_pool is None:
-        return False, "Engine pool not initialized"
-
-    pool = _server_state.engine_pool
-    old_limit = pool._max_model_memory
-    pool._max_model_memory = max_memory_bytes
-
-    old_display = format_size(old_limit) if old_limit is not None else "disabled"
-
-    if max_memory_bytes is None:
-        msg = f"Max model memory changed: {old_display} -> disabled (no limit)"
-        return True, msg
-
-    # If current usage exceeds new limit, unload LRU models
-    unloaded = []
-    while pool._current_model_memory > max_memory_bytes:
-        victim = pool._find_lru_victim()
-        if not victim:
-            # All models are pinned, can't free more memory
-            break
-        await pool._unload_engine(victim)
-        unloaded.append(victim)
-
-    msg = f"Max model memory changed: {old_display} -> {format_size(max_memory_bytes)}"
-    if unloaded:
-        msg += f", unloaded: {', '.join(unloaded)}"
 
     return True, msg
 
@@ -3138,7 +3092,6 @@ async def get_global_settings(is_admin: bool = Depends(require_admin)):
                 str(d) for d in global_settings.model.get_model_dirs(global_settings.base_path)
             ],
             "model_dir": str(global_settings.model.get_model_dir(global_settings.base_path)),
-            "max_model_memory": global_settings.model.max_model_memory,
             "model_fallback": global_settings.model.model_fallback,
             "hide_helper_models": global_settings.model.hide_helper_models,
         },
@@ -3240,7 +3193,7 @@ async def update_global_settings(
     Update global server settings.
 
     Updates are persisted to the global settings file. Some settings
-    (log_level, model_dir, max_model_memory, cache) are applied immediately,
+    (log_level, model_dir, cache) are applied immediately,
     while others (host, port, scheduler, mcp) require server restart.
 
     Args:
@@ -3339,25 +3292,6 @@ async def update_global_settings(
                     status_code=400,
                     detail=f"Failed to change model directories: {msg}"
                 )
-
-    if request.max_model_memory is not None and request.max_model_memory != "":
-        global_settings.model.max_model_memory = request.max_model_memory
-        # Apply at runtime
-        try:
-            if request.max_model_memory.lower() == "disabled":
-                max_bytes = None
-            elif request.max_model_memory.lower() == "auto":
-                max_bytes = global_settings.model.get_max_model_memory_bytes()
-            else:
-                max_bytes = parse_size(request.max_model_memory)
-            success, msg = await _apply_max_model_memory_runtime(max_bytes)
-            if success:
-                runtime_applied.append("max_model_memory")
-                logger.info(msg)
-            else:
-                logger.warning(f"Failed to apply max_model_memory runtime: {msg}")
-        except ValueError as e:
-            logger.warning(f"Invalid max_model_memory format: {e}")
 
     if request.model_fallback is not None:
         global_settings.model.model_fallback = request.model_fallback
@@ -4501,7 +4435,6 @@ def _build_active_models_data() -> dict:
     return {
         "models": models,
         "model_memory_used": status.get("current_model_memory", 0),
-        "model_memory_max": status.get("max_model_memory", 0),
         "memory_pressure": {
             "enabled": bool(enforcer_status and enforcer_status.get("enabled")),
             "current_bytes": (
