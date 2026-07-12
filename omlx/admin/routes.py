@@ -5156,7 +5156,7 @@ async def list_hf_models(is_admin: bool = Depends(require_admin)):
                         _add_model(child, child.name)
 
     # Sort by model name so organization prefixes group together.
-     models.sort(key=lambda m: m["name"].lower())
+    models.sort(key=lambda m: m["name"].lower())
     return {"models": models}
 
 
