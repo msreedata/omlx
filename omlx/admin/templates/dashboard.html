@@ -4,8 +4,8 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ static('css/dashboard.css') }}">
-<!-- Load dashboard.js BEFORE Alpine.js so x-data="dashboard()" resolves -->
-<script defer src="{{ static('js/dashboard.js') }}"></script>
+<!-- Load dashboard.js synchronously BEFORE Alpine.js (which has defer) so x-data="dashboard()" resolves -->
+<script src="{{ static('js/dashboard.js') }}"></script>
 {% endblock %}
 
 {% block content %}
