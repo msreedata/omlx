@@ -3302,7 +3302,7 @@ async def update_global_settings(
 
     # Apply process memory enforcement settings (Live)
     if request.max_process_memory is not None:
-     try:
+        try:
             success, msg = await _apply_max_process_memory_runtime(
                 request.max_process_memory
             )
