@@ -5018,3 +5018,6 @@ function dashboard() {
         },
     }
 }
+
+// Ensure Alpine.js can find the dashboard function in global scope
+window.dashboard = dashboard;
