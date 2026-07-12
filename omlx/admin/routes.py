@@ -3096,7 +3096,7 @@ async def get_global_settings(is_admin: bool = Depends(require_admin)):
             "hide_helper_models": global_settings.model.hide_helper_models,
         },
         "memory": {
-            "max_process_memory": global_settings.memory.max_process_memory,
+            "max_process_memory": getattr(global_settings.memory, "max_process_memory", "auto"),
             "prefill_memory_guard": global_settings.memory.prefill_memory_guard,
         },
         "scheduler": {
@@ -3302,8 +3302,7 @@ async def update_global_settings(
 
     # Apply process memory enforcement settings (Live)
     if request.max_process_memory is not None:
-        global_settings.memory.max_process_memory = request.max_process_memory
-        try:
+     try:
             success, msg = await _apply_max_process_memory_runtime(
                 request.max_process_memory
             )
