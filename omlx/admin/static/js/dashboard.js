@@ -6,7 +6,7 @@ const DSA_MODEL_TYPES = new Set([
     'deepseek_v32', 'glm_moe_dsa',
 ]);
 const DASHBOARD_MAIN_TABS = new Set(['status', 'settings', 'models', 'logs', 'bench']);
-const DASHBOARD_SETTINGS_TABS = new Set(['global', 'models']);
+const DASHBOARD_SETTINGS_TABS = new Set(['global', 'integrations', 'models']);
 const DASHBOARD_MODELS_TABS = new Set(['manager', 'downloader', 'quantizer', 'uploader']);
 const DASHBOARD_BENCH_TABS = new Set(['throughput', 'accuracy']);
 
@@ -5019,5 +5019,7 @@ function dashboard() {
     }
 }
 
-// Ensure Alpine.js can find the dashboard function in global scope
-window.dashboard = dashboard;
+// Register with Alpine.js component system
+if (typeof Alpine !== 'undefined') {
+ Alpine.data('dashboard', dashboard);
+}

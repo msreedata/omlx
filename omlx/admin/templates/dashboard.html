@@ -4,6 +4,8 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ static('css/dashboard.css') }}">
+<!-- Load dashboard.js BEFORE Alpine.js so x-data="dashboard()" resolves -->
+<script defer src="{{ static('js/dashboard.js') }}"></script>
 {% endblock %}
 
 {% block content %}
@@ -92,5 +94,4 @@
 {% block scripts %}
 <script src="{{ static('js/purify.min.js') }}"></script>
 <script src="{{ static('js/marked.umd.js') }}"></script>
-<script src="{{ static('js/dashboard.js') }}"></script>
 {% endblock %}
