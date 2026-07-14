@@ -295,6 +295,25 @@ function dashboard() {
         hfSearchMaxSize: '',
         hfSearchMinSize: '',
         hfSearchExcludePatterns: 'fp16', // Pre-filled default, comma-separated
+        
+         // Manager sort state (used by sortManagerColumn / resetManagerSort)
+         managerSearch: '',
+         managerSortBy: 'name',
+         managerSortOrder: 'asc',
+         isManagerSortDefault: true,
+        
+         // Models tab sort state (upstream feature stubs)
+         modelSearch: '',
+         isModelsSortDefault: true,
+        
+         // Upstream feature stubs (not implemented in our fork)
+         codexAppCommand: '',
+         memoryGuardTierDescription: '',
+          memoryGuardShowWiredLimitWarning: false,
+          memoryGuardWiredLimitWarningHTML: '',
+          memoryGuardWiredLimitCommand: '',
+          memoryGuardBreakdownHTML: '',
+         markitdownOcrModels: [],
         // Table sort state for Browse Models
         hfTableSort: 'lastUpdated',
         hfTableSortDir: 'desc',
