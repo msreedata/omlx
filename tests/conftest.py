@@ -5,6 +5,10 @@ Pytest configuration and fixtures for oMLX tests.
 This module provides common fixtures used across test files.
 """
 
+# Install mlx stubs early so omlx can be imported on Linux CI where
+# the native mlx library is unavailable (macOS / Apple Silicon only).
+import tests.conftest_mlx_stub  # noqa: F401  isort:skip
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
